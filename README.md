@@ -1,4 +1,4 @@
-# Visibility_Encoder
+# Visibility Encoder
 Train and predict visibility for camera parameters within urban contexts.
 
 # Usage 
