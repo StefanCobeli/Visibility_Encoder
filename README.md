@@ -19,7 +19,7 @@ python server.py
 
 ### 3. Use cases:
 
-1. __Facade Generation__: predict visibility values for the facade of a buildilg given by 4 base points.
+1. __Facade Generation__: `predict_facade_from_base_points_page` method predicts visibility values for the facade of a buildilg given by 4 base points.
 
 Example:
 
@@ -28,7 +28,7 @@ Example:
 
 `base_point.csv` files need to be located in `/utils/assets/new_buildings/`
 
-2. __Test Encoder__: test and predict visibility values from a locations csv file.
+2. __Test Encoder__: `test_encoder_on_data_page`tests and predicts visibility values from a locations csv file.
 
 Example:
 
@@ -72,6 +72,17 @@ __Each location__ is represented by:
 ```
 
 # Intuitions
+
+`predict_facade_from_base_points` accepts two link parameters: `bh` buiding height and `ppf` points per facade side
+
+To generate a __building of height 75__ and with __1,000 locations per facade side__ the following link can be used:
+
+http://127.0.0.1:5000/predict_facade_from_base_points/base_points_example?bh=75&ppf=1000
+
+(in total there will be 5 * 1,000 * 6 predictions, 5 faces of the building and 6 camera angles per location).
+
+    Obs: Each buildig has 5 faces because we generate four walls and one rooftop. No points are generated on the ground level.
+
 
 New building from base points:
 
