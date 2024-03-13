@@ -35,3 +35,44 @@ Example:
 `http://127.0.0.1:5000/test_encoder_on_data/locations_example`
 
 `location.csv` files need to be located in `/utils/assets/test_data/`
+
+
+# Output format
+
+All the methods use the following output format, namely a list of the genereated locations. 
+
+__Each location__ is represented by:
+
+1. `camera_coordinates` - The ordere is x, y, z, xh, yh, zh - __xyz__ are the coordinates and __xhyhzh__ are the roatations of the camera.
+
+2. `predictions` - Values between 0 and 1 correspondet to the visibility values towards the selected classes _['building' ' water' ' tree' ' sky']_. 
+
+```
+[
+  {
+    "camera_coordinates": [
+      842.5106601410772,
+      45.02010124456787,
+      1458.2977995297426,
+      32.2071524443495,
+      83.45431161148385,
+      -32.04065846001832
+    ],
+    "predictions": [
+      0.987492561340332,
+      0.1578688621520996,
+      0.8025062680244446,
+      0.6580542922019958
+    ]
+  },
+  {
+    "camera_coordinates": [
+...
+]
+```
+
+# Intuitions
+
+New building from base points:
+
+![New building from base points](utils/assets/images/building_from_base_points.png)

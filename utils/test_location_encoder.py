@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
+import time
 import torch
 
 
@@ -38,7 +40,10 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
     test_loc_path   = data_path
 
     test_df, _, _   = process_locations_visibility_data_frame(test_loc_path, norm_params, selected_label_indexes=info_dict["sli"], missing_labels=missing_labels)
-
+    if "image_name" not in test_df:
+        test_df["image_name"] = ""
+    if "f_xyz" not in test_df:
+        test_df['f_xyz']      = ""
 
     #1.Data loader from points
     test_dl  = get_location_visibility_loaders(test_df, missing_labels=False, only_test=True, batch_size=batch_size)
@@ -65,16 +70,18 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     bp  = base_points
     ppf = points_per_facade_face
     bh  = building_height
+    apl = 6 #angles per location
+
     #1. generate locations on the facade:
     full_facade, lbp = get_full_facade_from_basepoints(bp, building_height = bh, points_per_facade = ppf, seed=1)
 
     #a. Generate 6 Angles for each of the locations 
     gmm_path          = './utils/assets/models/angles_gmm_100.joblib'
-    num_new_locations = full_facade.shape[0] * 6
+    num_new_locations = full_facade.shape[0] * apl #6 angles per each location
 
 
     #b. Each location get repeated 6 times and gets a random camera angles sample
-    facade_locations = full_facade.repeat(6, axis=0)
+    facade_locations = full_facade.repeat(apl, axis=0)
     facade_angles    = generate_angles_with_gmm(num_new_locations, gmm_path)
 
 
@@ -87,7 +94,7 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     facade_df['f_xyz']      = ""
 
     new_building_name = "_".join(lbp.flatten().astype(str))
-    new_building_path = f"./utils/assets/new_buildings/locations_new_building_{new_building_name}.csv"
+    new_building_path = f"./utils/assets/new_buildings/locations_new_building_bh-{bh}_ppf-{ppf}_{new_building_name}.csv"
 
     print(f"saved {len(facade_df)} new facade locations at:\n\t{new_building_path}")
     facade_df.to_csv(new_building_path, index_label=False)
@@ -107,6 +114,7 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
         test_predictions = get_normalized_distributions(test_predictions, norm_type=normalized_predictions)
     
     facade_df["predictions"] = test_predictions.tolist()
+    facade_df.to_csv(new_building_path, index_label=False)
     
     return facade_df.drop(["image_name", "f_xyz"], axis=1)
 
