@@ -333,9 +333,11 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
 
     # Save
     #torch.save(encoder_net.state_dict(), f"{models_path}/{model_name}")
-    torch.save(encoder_net, f"{models_path}/{model_name}")
+    #torch.save(encoder_net, f"{models_path}/{model_name}")
+    # https://pytorch.org/tutorials/beginner/saving_loading_models.html
+    torch.save(encoder_net.state_dict(), f"{models_path}/{model_name}")
 
-    print(f"Model saved at:\n\t{models_path}/{model_name}")
+    print(f"Model weights saved at:\n\t{models_path}/{model_name}")
 
 
 

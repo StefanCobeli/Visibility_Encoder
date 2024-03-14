@@ -14,6 +14,7 @@ from utils.scripts.architectures.torch_nerf_src import network
 
 
 
+
 def test_encoder_on_data(data_path, model_path, model_version, missing_labels=False, batch_size=32, normalized_predictions="log"):
     '''
     Testing model on location.csv file
@@ -40,10 +41,11 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
     test_loc_path   = data_path
 
     test_df, _, _   = process_locations_visibility_data_frame(test_loc_path, norm_params, selected_label_indexes=info_dict["sli"], missing_labels=missing_labels)
+    # print(test_df.columns)
     if "image_name" not in test_df:
-        test_df["image_name"] = ""
+        test_df["image_name"] = "no_image_name"
     if "f_xyz" not in test_df:
-        test_df['f_xyz']      = ""
+        test_df['f_xyz']      = "no_f_xyz"
 
     #1.Data loader from points
     test_dl  = get_location_visibility_loaders(test_df, missing_labels=False, only_test=True, batch_size=batch_size)
@@ -97,8 +99,9 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     new_building_path = f"./utils/assets/new_buildings/locations_new_building_bh-{bh}_ppf-{ppf}_{new_building_name}.csv"
 
     print(f"saved {len(facade_df)} new facade locations at:\n\t{new_building_path}")
-    facade_df.to_csv(new_building_path, index_label=False)
-    
+    # facade_df.to_csv(new_building_path, index_label=False)
+    facade_df.to_csv(new_building_path, index=False)
+
     #2. make predictions for each point on the facade:
     dp = new_building_path       # data path
     bs = batch_size# 2**14                   # batch size
@@ -114,7 +117,8 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
         test_predictions = get_normalized_distributions(test_predictions, norm_type=normalized_predictions)
     
     facade_df["predictions"] = test_predictions.tolist()
-    facade_df.to_csv(new_building_path, index_label=False)
+    # facade_df.to_csv(new_building_path, index_label=False)
+    facade_df.to_csv(new_building_path, index=False)
     
     return facade_df.drop(["image_name", "f_xyz"], axis=1)
 
