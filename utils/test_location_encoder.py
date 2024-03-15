@@ -5,6 +5,7 @@ import seaborn as sns
 import time
 import torch
 
+import os
 
 
 from utils.geometry_utils import *
@@ -30,12 +31,9 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
 
     #1. read trained model
     #print(model_path, model_version)
-    # trained_encoder = torch.load(f"{model_path}/encoder_{model_version}.pt")
-    #
     trained_encoder = network.nerf.NeRF(pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"]\
         ,  view_dir_dim=info_dict["enc_input_size"], feat_dim=256)
     trained_encoder.load_state_dict(torch.load(f"{model_path}/encoder_{model_version}.pt"))
-    #print("$$$$$$$$$$$")
 
     #3. Reading locations data
     test_loc_path   = data_path
@@ -48,7 +46,7 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
         test_df['f_xyz']      = "no_f_xyz"
 
     #1.Data loader from points
-    test_dl  = get_location_visibility_loaders(test_df, missing_labels=False, only_test=True, batch_size=batch_size)
+    test_dl  = get_location_visibility_loaders(test_df, missing_labels=missing_labels, only_test=True, batch_size=batch_size)
 
 
     #2. Encoder details
@@ -57,13 +55,29 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
     mean_loss, all_losses, test_predictions   = run_one_epoch_location_encoder(trained_encoder, criterion, optimizer\
                                            , test_dl, training_epoch=False, return_predictions=True, gt_labels=not(missing_labels))
 
+    #Debuging predictions purposes:
+    #if debugging_predictions:
+        # test_df["f_xyz_gt"]         = test_df["f_xyz"]   #Value used as ground truth - loss was computed using this 
+        # test_df["predictions_raw"]  = test_predictions.tolist()   #Unnormalized predictions
+
+    print(f"MSE on new predicted points locations:\n\t{mean_loss.mean()}")
 
     if normalized_predictions:
         test_predictions = get_normalized_distributions(test_predictions, norm_type=normalized_predictions)
     
-    print(f"MSE on new predicted points locations:\n\t{mean_loss.mean()}")
+    test_df["predictions"] = test_predictions.tolist()
+
+    #Clean up the "csv" to be back in the original format:
+    if "f_xyz_raw" in test_df:
+        test_df["f_xyz"]       = test_df["f_xyz_raw"]
+        test_df = test_df.drop("f_xyz_raw", axis=1)
+
+    #Build Predictions path and save to new csv file.
+    predictions_path = "/".join(test_loc_path.split("/")[:-1] + ["/predictions/"]) + f"{test_loc_path.split('/')[-1][:-4]}_with_predictions.csv"
+    test_df.drop(["xn", "yn", "zn",	"xhn", "yhn", "zhn"], axis=1).to_csv(predictions_path, index=False)
 
     return mean_loss, all_losses, test_predictions, test_df, info_dict
+
 
 def predict_facade_from_base_points(base_points, building_height, points_per_facade_face=100, normalized_predictions="log", batch_size=2**15):
     '''
@@ -92,8 +106,8 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     #c. Save to new generated locations and agles to pandas csv
 
     facade_df = pd.DataFrame(facade_np, columns=["x", "y", "z", "xh", "yh", "zh"])
-    facade_df["image_name"] = ""
-    facade_df['f_xyz']      = ""
+    facade_df["image_name"] = "no_image_name"
+    facade_df['f_xyz']      = "no_f_xyz"
 
     new_building_name = "_".join(lbp.flatten().astype(str))
     new_building_path = f"./utils/assets/new_buildings/locations_new_building_bh-{bh}_ppf-{ppf}_{new_building_name}.csv"
@@ -111,14 +125,15 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     mean_loss, all_losses, test_predictions, test_df, info_dict = \
     test_encoder_on_data(dp, mp, mv, missing_labels=True, batch_size=bs)
     #print(f"MSE on new predicted points locations:\n\t{mean_loss.mean()}")
-    # provide both normalized predictions and not normailzed predictions options
-
-    if normalized_predictions:
-        test_predictions = get_normalized_distributions(test_predictions, norm_type=normalized_predictions)
     
-    facade_df["predictions"] = test_predictions.tolist()
-    # facade_df.to_csv(new_building_path, index_label=False)
-    facade_df.to_csv(new_building_path, index=False)
+    #Keep only the csv file with the predictions (saved in the test_encoder_on_data)
+    # - Remove the csv transformed from the json request:
+    os.remove(new_building_path)
+    facade_df["predictions"] = test_predictions.tolist() # test_df and facade_df might be the save - TODO: consider returning test_df and remove this line
+
+    # facade_df.to_csv(new_building_path, index_label=False) #Saves index
+    # facade_df.to_csv(new_building_path, index=False)       # does not save index - moved to test_encoder_on_data
+
     
     return facade_df.drop(["image_name", "f_xyz"], axis=1)
 
