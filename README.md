@@ -23,18 +23,28 @@ python server.py
 
 Example:
 
+- test in browser using:
 
-`http://127.0.0.1:5000/predict_facade_from_base_points/base_points_example`
+`http://127.0.0.1:5000/predict_facade_from_base_points?bh=50&ppf=250`
 
-`base_point.csv` files need to be located in `/utils/assets/new_buildings/`
+- or in command line:
+
+`curl -X POST -H "Content-Type: application/json" --data @./utils/assets/new_buildings/base_points_example.json "http://127.0.0.1:5000/predict_facade_from_base_points?bh=10&ppf=150"`
+
+`base_points_example.json` files need to be located in `/utils/assets/new_buildings/`
 
 2. __Test Encoder__: `test_encoder_on_data_page`tests and predicts visibility values from a locations csv file.
 
 Example:
+- test in browser using:
 
-`http://127.0.0.1:5000/test_encoder_on_data/locations_example`
+`http://127.0.0.1:5000/test_encoder_on_data`
 
-`location.csv` files need to be located in `/utils/assets/test_data/`
+- or in command line:
+
+`curl -X POST -H "Content-Type: application/json" --data @./utils/assets/test_data/locations_example.json http://127.0.0.1:5000/test_encoder_on_data`
+   
+`locations_example.json` files need to be located in `/utils/assets/test_data/`
 
 
 # Output format
@@ -73,11 +83,21 @@ __Each location__ is represented by:
 
 # Intuitions
 
-`predict_facade_from_base_points` accepts two link parameters: `bh` buiding height and `ppf` points per facade side
+`predict_facade_from_base_points` accepts two link parameters: 
+
+- `bh` buiding height (Example: bh=5)
+- `ppf` points per facade side (Example: ppf=10)
+- `bpn` base points name - name to be appended on the resulting predicitons file (Example: bpn=Willis, defualt is "unnamed_building")
 
 To generate a __building of height 75__ and with __1,000 locations per facade side__ the following link can be used:
 
-http://127.0.0.1:5000/predict_facade_from_base_points/base_points_example?bh=75&ppf=1000
+
+    http://127.0.0.1:5000/predict_facade_from_base_points?bh=75&ppf=1000
+
+- or in command line:
+- 
+
+`curl -X POST -H "Content-Type: application/json" --data @./utils/assets/new_buildings/base_points_example.json "http://127.0.0.1:5000/predict_facade_from_base_points?bh=75&ppf=1000&bpn=Willis"`
 
 (in total there will be 5 * 1,000 * 6 predictions, 5 faces of the building and 6 camera angles per location).
 
