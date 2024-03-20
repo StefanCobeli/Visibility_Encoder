@@ -208,10 +208,12 @@ def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1
     # return train_loader, test_loader, train_df, test_df if return_dfs else train_loader, test_loader
 
 
-def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_test=False, selected_label_indexes=None):
+def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_test=False, selected_label_indexes=None, file_name="locations", return_info=False):
     '''
     mpc: min_percentage_per_class - 0-1 how often a class should appear in the set to be considered - default .05.
     tsp: training set percentage  - out of the 80% of the data on how many samples should the model be trained - default 1.
+
+    returns: encoder_net, trlh, tlh, visibility_dataset_df training_info_df (training_info_df only if return_info)
     '''
 
     import time
@@ -220,7 +222,7 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
 
     NY_MESH = True
     # NY_MESH = False
-    file_store = data_path + "/locations.csv"
+    file_store = data_path + f"/{file_name}.csv"
     if separate_test:
         file_store_train = data_path + "/locations_train.csv"
         file_store_test  = data_path + "/locations_test.csv"
@@ -304,7 +306,7 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
 
     import sys
     np.set_printoptions(threshold=sys.maxsize, suppress=True, linewidth=500)
-    pd.DataFrame({"classes_names":[classes_names]\
+    training_info_df = pd.DataFrame({"classes_names":[classes_names]\
                   , "mpc":mpc\
                   , "non_empty_classes_names":[non_empty_classes_names]\
                   , "train_size": len(train_loader.dataset)
@@ -327,8 +329,8 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
                   , "training_losses_summary":[trlh[::max([1, num_epochs//10])]]\
                   , "test_losses_summary":[tlh[::max([1, num_epochs//20])]]\
                   , "training_losses_history":[trlh]\
-                  , "test_losses_history":[tlh]}).T\
-    .to_csv(f"{models_path}/training_info_{num_epochs}.csv")
+                  , "test_losses_history":[tlh]}).T
+    training_info_df.to_csv(f"{models_path}/training_info_{num_epochs}.csv")
     
 
     # Save
@@ -342,6 +344,9 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
 
 
     print(f"\nTraining for \n\t{num_epochs}     epochs took: \n\t{int(et-st):,}s, for an average of: \n\t{(et-st)/num_epochs:.1f}s per epoch.")
+
+    if return_info:
+        return encoder_net, trlh, tlh, visibility_dataset_df, training_info_df
 
     return encoder_net, trlh, tlh, visibility_dataset_df
 

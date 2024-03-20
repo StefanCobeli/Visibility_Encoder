@@ -19,7 +19,20 @@ python server.py
 
 ### 3. Use cases:
 
-1. __Facade Generation__: `predict_facade_from_base_points_page` method predicts visibility values for the facade of a buildilg given by 4 base points.
+1. __Test current location__: 
+
+Test model on a single given location 
+    
+Example:
+- On broser:
+
+    `http://127.0.0.1:5000/test_encoder_on_current_position`
+- On command line:
+
+  `curl -X POST -H "Content-Type: application/json" --data @./utils/assets/test_data/locations_example_single.json "http://127.0.0.1:5000/test_encoder_on_current_position"`
+    
+
+2. __Facade Generation__: `predict_facade_from_base_points_page` method predicts visibility values for the facade of a buildilg given by 4 base points.
 
 Example:
 
@@ -33,7 +46,7 @@ Example:
 
 `base_points_example.json` files need to be located in `/utils/assets/new_buildings/`
 
-2. __Test Encoder__: `test_encoder_on_data_page`tests and predicts visibility values from a locations csv file.
+3. __Test Encoder__: `test_encoder_on_data_page`tests and predicts visibility values from a locations csv file.
 
 Example:
 - test in browser using:

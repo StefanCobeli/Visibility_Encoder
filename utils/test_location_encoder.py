@@ -16,7 +16,7 @@ from utils.scripts.architectures.torch_nerf_src import network
 
 
 
-def test_encoder_on_data(data_path, model_path, model_version, missing_labels=False, batch_size=32, normalized_predictions="log"):
+def test_encoder_on_data(data_path, model_path, model_version, missing_labels=False, batch_size=32, normalized_predictions="log", debugging_predictions=False):
     '''
     Testing model on location.csv file
     if missing labels, losses will be 0
@@ -56,9 +56,10 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
                                            , test_dl, training_epoch=False, return_predictions=True, gt_labels=not(missing_labels))
 
     #Debuging predictions purposes:
-    #if debugging_predictions:
-        # test_df["f_xyz_gt"]         = test_df["f_xyz"]   #Value used as ground truth - loss was computed using this 
-        # test_df["predictions_raw"]  = test_predictions.tolist()   #Unnormalized predictions
+    if debugging_predictions:
+        test_df["f_xyz_gt"]         = test_df["f_xyz"]   #Value used as ground truth - loss was computed using this 
+        test_df["predictions_raw"]  = test_predictions.tolist()   #Unnormalized predictions
+        return mean_loss, all_losses, test_predictions, test_df, info_dict
 
     print(f"MSE on new predicted points locations:\n\t{mean_loss.mean()}")
 
@@ -74,12 +75,14 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
 
     #Build Predictions path and save to new csv file.
     predictions_path = "/".join(test_loc_path.split("/")[:-1] + ["/predictions/"]) + f"{test_loc_path.split('/')[-1][:-4]}_with_predictions.csv"
-    test_df.drop(["xn", "yn", "zn",	"xhn", "yhn", "zhn"], axis=1).to_csv(predictions_path, index=False)
+    test_df = test_df.drop(["xn", "yn", "zn",	"xhn", "yhn", "zhn"], axis=1)
+    test_df.to_csv(predictions_path, index=False)
+    # print("\n$$$$$$$$$$$$$$$$$$$$$\n")
 
     return mean_loss, all_losses, test_predictions, test_df, info_dict
 
 
-def predict_facade_from_base_points(base_points, building_height, points_per_facade_face=100, normalized_predictions="log", batch_size=2**15):
+def predict_facade_from_base_points(base_points, building_height, points_per_facade_face=100, normalized_predictions="log", batch_size=2**15, debugging_predictions=False):
     '''
     Given 4 input points, the height and the poitns per side geenerate locations, angles and predictions
     '''
@@ -123,7 +126,7 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     mv = 350 #model version
 
     mean_loss, all_losses, test_predictions, test_df, info_dict = \
-    test_encoder_on_data(dp, mp, mv, missing_labels=True, batch_size=bs)
+    test_encoder_on_data(dp, mp, mv, missing_labels=True, batch_size=bs, normalized_predictions=normalized_predictions, debugging_predictions=debugging_predictions)
     #print(f"MSE on new predicted points locations:\n\t{mean_loss.mean()}")
     
     #Keep only the csv file with the predictions (saved in the test_encoder_on_data)
@@ -133,7 +136,8 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
 
     # facade_df.to_csv(new_building_path, index_label=False) #Saves index
     # facade_df.to_csv(new_building_path, index=False)       # does not save index - moved to test_encoder_on_data
-
+    if debugging_predictions:
+        return test_df
     
     return facade_df.drop(["image_name", "f_xyz"], axis=1)
 
@@ -167,7 +171,7 @@ def parse_training_info(model_path, model_version):
     return info_dict
 
 
-def get_normalized_distributions(predictions, norm_type="log", error_scaling=False):
+def get_normalized_distributions(predictions, norm_type="percentages", error_scaling=False):
     '''Normalize predictions between 0 and 1 to be used as input for seaborn color pallete'''
     #Log normalization:
     norm_preds      = predictions# preds[:, selected_label] # linear scaling, no logarithm
@@ -178,7 +182,13 @@ def get_normalized_distributions(predictions, norm_type="log", error_scaling=Fal
     #Linear normalization: 
     lin_norm_preds  = (norm_preds - norm_preds.min(axis=0)) / (norm_preds.max(axis=0) - norm_preds.min(axis=0))
     #lin_norm_preds  = (norm_preds - norm_preds.min(axis=0)) / 2 # Since tanh is the final activation max - min should be 1-(-1) = 2
-    
+
+    if norm_type == "percentages":
+        lin_norm_preds = (predictions + 1) / 2 #Minimum of tanh is -1 maximum is 1
+        #if there is a line with predictions that sum up to more than one. Cap them to maximum one, otherwise leave them as they were:
+        overflow_ids                 = lin_norm_preds.sum(axis=1)>1
+        lin_norm_preds[overflow_ids] = (lin_norm_preds / lin_norm_preds.sum(axis=1).reshape((-1,1)))[overflow_ids]    
+
     #Assums norm_preds are the actual MSE errors, not the predictions.
     if error_scaling:
         lin_norm_preds = norm_preds / 4 #Since Predictions are in (-1,1), maxium MSE is 4
