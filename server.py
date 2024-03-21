@@ -1,14 +1,17 @@
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS, cross_origin
 from utils.scripts.architectures.train_location_encoder import *
 from utils.test_location_encoder                        import *
 
 
 app = Flask(__name__)
+app.config['CORS_HEADERS'] = 'Content-Type'
 
+CORS(app)
 
 # Create locations on facade of the building 
-@app.route('/predict_facade_from_base_points', methods=['POST', "GET"])
+@app.route('/predict_facade_from_base_points', methods=["POST", "GET"])
 def predict_facade_from_base_points_page():
     '''
     generated predictions and inputs on facade from base points 
@@ -23,6 +26,7 @@ def predict_facade_from_base_points_page():
 
     try:
         data  = request.json
+        print(data)
         bp_df = pd.DataFrame(data)#.to_dict(orient="records")
     except:
         print("Empty JSON sent in the request - Using the Example base points")
@@ -34,6 +38,7 @@ def predict_facade_from_base_points_page():
     #1. Read base points
     
     bp  = bp_df.values
+    print(bp)
     bh  = int(request.args.get('bh', '50'))   #buiding height
     bs  = int(request.args.get('bs', '32768')) #batch size - default 2**15 - 32768
     ppf = int(request.args.get('ppf', '250')) #points per facade side
@@ -54,7 +59,10 @@ def predict_facade_from_base_points_page():
     facade_records = facade_df.to_dict(orient="records")
     facade_dict = [{"camera_coordinates":[fr["x"],fr["y"],fr["z"],fr["xh"],fr["yh"],fr["zh"]]\
         , "predictions": fr["predictions"] } for fr in facade_records]
-    return jsonify(facade_dict)
+    response = jsonify(facade_dict)
+    print(response)
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
 
 
 
@@ -72,7 +80,7 @@ def test_encoder_on_current_position_page():
 
     try:
         data       = request.json
-        test_df    = pd.DataFrame(data)
+        test_df    = pd.DataFrame(data, index=[0])
         test_name  = "_".join(test_df[["x", "y", "z"]].astype(int).values[0].astype(str))
 
         test_path = f"./utils/assets/test_data/location_single_{test_name}.csv"
@@ -92,7 +100,8 @@ def test_encoder_on_current_position_page():
         test_df.to_csv(test_path, index=False)
         #print("\n$$$$$$$$$$$$$$$$$$$$$\n")
             
-    except:
+    except Exception as e:
+        print(e)
         print("Empty JSON sent in the request - Using the Example locations file")
         test_name = "example"
         test_path = f'./utils/assets/test_data/locations_example_single.csv'
@@ -121,6 +130,7 @@ def test_encoder_on_current_position_page():
 
 
 @app.route("/test_encoder_on_data", methods=['POST', "GET"])
+@cross_origin()
 def test_encoder_on_data_page(test_path=None):
     """
     Test model on locations.csv

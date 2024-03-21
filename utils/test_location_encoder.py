@@ -113,7 +113,7 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     facade_df['f_xyz']      = "no_f_xyz"
 
     new_building_name = "_".join(lbp.flatten().astype(str))
-    new_building_path = f"./utils/assets/new_buildings/locations_new_building_bh-{bh}_ppf-{ppf}_{new_building_name}.csv"
+    new_building_path = f"./utils/assets/new_buildings/mockedFileName.csv"
 
     print(f"saved {len(facade_df)} new facade locations at:\n\t{new_building_path}")
     # facade_df.to_csv(new_building_path, index_label=False)
