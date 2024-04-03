@@ -46,7 +46,27 @@ Example:
 
 `base_points_example.json` files need to be located in `/utils/assets/new_buildings/`
 
-3. __Test Encoder__: `test_encoder_on_data_page`tests and predicts visibility values from a locations csv file.
+
+3. __Remove Building__: `remove_building_page` method receives a set of reassigned visibility values and locations and retrains a model for the according visibility. Retraining should take around 10 seconds:
+
+
+Example:
+- test in browser using:
+
+`http://127.0.0.1:5000/remove_building`
+
+- or in command line:
+
+`curl -X POST -H "Content-Type: application/json" --data @./utils/assets/removed_buildings/removedBuilding.json "http://127.0.0.1:5000/remove_building"`
+   
+`removedBuilding.json` file is an example of expected file.
+
+Losses improvement after dataset reassignment with new locations:
+
+![Removed building visibility training losses.](utils/assets/images/removed_building_losses.png)
+
+
+4. __Test Encoder__: `test_encoder_on_data_page`tests and predicts visibility values from a locations csv file.
 
 Example:
 - test in browser using:

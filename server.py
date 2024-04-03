@@ -3,12 +3,43 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
 from utils.scripts.architectures.train_location_encoder import *
 from utils.test_location_encoder                        import *
-
+from utils.view_impact                                  import remove_builiding_and_retrain_model, reset_encoder_weights
+ 
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 CORS(app)
+
+
+# Create locations on facade of the building 
+@app.route('/remove_building', methods=["POST", "GET"])
+def remove_building_page():
+    '''
+    Remove building and retrain model based on received recomputed locations:
+    test in browser using:
+    http://127.0.0.1:5000/remove_building
+    or in command line 
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/removed_buildings/removedBuilding.json "http://127.0.0.1:5000/remove_building"
+    '''
+    reset_encoder_weights()
+    removed_path  = "./utils/assets/removed_buildings/removedBuilding.csv"
+    try:
+        data          = request.json
+        print("Saving df!")
+        removed_df    = pd.DataFrame(data)
+        removed_df.to_csv(removed_path, index=False)
+        test_losses_history, rm_losses_history = remove_builiding_and_retrain_model()
+        print("Trained!")
+
+    except Exception as e:
+        print(e)
+        print(f"Invalid JSON sent in the request - an example removed locations file is in:\n\t{removed_path.strip('.csv')}.json")
+        rm_losses_history = ["np.inf"]; test_losses_history = ["np.inf"]
+
+    print(rm_losses_history, test_losses_history)
+    return jsonify([{"removed losses":np.vstack(rm_losses_history).tolist(), "test losses": np.vstack(test_losses_history).tolist()}])
+
 
 # Create locations on facade of the building 
 @app.route('/predict_facade_from_base_points', methods=["POST", "GET"])
@@ -180,6 +211,16 @@ def test_encoder_on_data_page(test_path=None):
     values = test_predictions.tolist()
 
     return jsonify([{"camera_coordinates": k, "predictions" : v} for k, v in zip(keys, values)])
+
+
+@app.route("/reset_encoder_weights")
+@cross_origin()
+def reset_encoder_weights_page():
+    '''
+    Reset weights of model to the state before building removal.
+    '''
+    reset_encoder_weights()
+    return jsonify({"Restored weights in":"./utils/assets/models/encoder_350.pt"})
 
 
 if __name__ == '__main__':

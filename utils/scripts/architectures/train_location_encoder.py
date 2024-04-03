@@ -5,7 +5,8 @@ import os
 
 from sklearn.model_selection import train_test_split
 from utils.scripts.architectures.torch_nerf_src import network
-from tqdm.notebook import tqdm
+# from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 
 
@@ -124,7 +125,8 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     '''
     # print("Processing")
     
-    vis_df                        = pd.read_csv(file_store)
+    vis_df                                  = pd.read_csv(file_store)
+    vis_df[['x','y',"z", 'xh', 'yh', 'zh']] = vis_df[['x','y',"z", 'xh', 'yh', 'zh']].round(3)
     
     if norm_params is None:
         vis_df_n, xyz_mean, xyz_dev   = normalize_visibility_dataframe(vis_df, ["x", "y", "z"])
@@ -169,8 +171,9 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
 def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1, test_size=0.2, batch_size=32, pos_enc_dim=10, seed=1, only_train=False, only_test=False, missing_labels=False, return_dfs=False):
     """Return train and test loaders based on processed visibility data frame
     pos_enc_dim  # 4 or 10 #See NeRF paper section 5.1 Positional encoding, page 8 - L = 4 or L=10 for γ(d).
-    only_test  - 
-    only_train -
+    only_train or only_test  - forces the return of only one loader and dataframe without random seed split. 
+    return train_loader, test_loader, train_df, test_df (if return_dfs is True)
+    return train_loader, test_loader
     """
     np.random.seed(seed)
     if only_test or only_train:

@@ -141,7 +141,20 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     
     return facade_df.drop(["image_name", "f_xyz"], axis=1)
 
-
+def np_print_back_to_array(printed_np):
+    '''
+    parser for a printed numpy array
+    return np_array
+    '''
+    lines       = printed_np.split('\n')
+    #clean_lines = [l.strip(" []").replace("  ", " ").replace("  ", " ").split(" ") for l in lines]
+    #https://stackoverflow.com/a/2077944/7136493
+    clean_lines = [l.strip(" []").split() for l in lines]
+    
+    np_array    = np.vstack(clean_lines).astype(np.float32)
+    
+    return np_array
+    
 def parse_training_info(model_path, model_version):
     '''
     Parse training details into dictionary.
@@ -158,6 +171,14 @@ def parse_training_info(model_path, model_version):
     info_dict["pos_enc_dim"] = eval(info_dict["pos_enc_dim"])
     info_dict["num_present_classes"] = eval(info_dict["num_present_classes"])
     info_dict["enc_input_size"]      = eval(info_dict["enc_input_size"])
+
+    info_dict["final_training_loss"] = eval(info_dict["final_training_loss"])
+    info_dict["final_test_loss"]     = eval(info_dict["final_test_loss"])
+
+    info_dict["training_losses_summary"] = np_print_back_to_array(info_dict["training_losses_summary"])
+    info_dict["training_losses_history"] = np_print_back_to_array(info_dict["training_losses_history"])
+    info_dict["test_losses_summary"]  = np_print_back_to_array(info_dict["test_losses_summary"])
+    info_dict["test_losses_history"]  = np_print_back_to_array(info_dict["test_losses_history"])
     
     #2. Parse normalization parameters:
     info_dict["xyz_centroid"]    = np.array(eval(info_dict["xyz_centroid"].replace("  ", ",")) )
