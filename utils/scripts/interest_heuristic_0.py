@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 
-from lang_sam        import LangSAM
+# from lang_sam        import LangSAM
 from PIL             import Image
 from tqdm.notebook   import tqdm
-from skimage.measure import block_reduce
+# from skimage.measure import block_reduce
 from utils.scripts.helper_ply_SensatUrban_0 import DataProcessing, write_ply
 
 

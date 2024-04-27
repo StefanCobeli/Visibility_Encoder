@@ -1,5 +1,5 @@
 import numpy   as np
-import pyvista as pv# Scene Rendering
+# import pyvista as pv# Scene Rendering
 import open3d  as o3d
 # from grid_processing_scripts_1 import scale_pcd, o3d
 # from tqdm import tqdm
@@ -111,7 +111,7 @@ def sample_spherical(offset=np.zeros((1, 3)), npoints=1000, radius=0.002, ndim=3
 # https://seaborn.pydata.org/tutorial/color_palettes.html
 # view_field_colors = sns.color_palette("mako", n_colors=10)#[-2] = (0.4285828, 0.82635051, 0.6780564)
 def view_field_o3d(highlight_point, norm=2, color=(0.4285828, 0.82635051, 0.6780564), npoints=100, radius=1):#0.002*64):
-    color=(0.8509803921568627, 0.21568627450980393, 0.43137254901960786)#red happy hue
+    #color=(0.8509803921568627, 0.21568627450980393, 0.43137254901960786)#red happy hue
     view_field            = sample_spherical(offset=highlight_point, npoints=npoints, radius=radius, norm=norm)
     view_field_o3d        = o3d.geometry.PointCloud()
     view_field_o3d.points = o3d.utility.Vector3dVector(view_field)
@@ -123,6 +123,7 @@ def view_field_o3d(highlight_point, norm=2, color=(0.4285828, 0.82635051, 0.6780
 #Copied from full_pipeline_360_scripts:
 def get_highlighed_o3d_locations(point_locations, norm=2, color=(0.8509803921568627, 0.21568627450980393, 0.43137254901960786), npoints=100, radius=1):
     '''Generate Open3D point cloud spheres centered in specified locations.'''
+    point_locations = np.array(point_locations)
     if len(point_locations.shape) == 1:
         return [view_field_o3d(point_locations, norm=norm, color=color, npoints=npoints, radius=radius)]
 

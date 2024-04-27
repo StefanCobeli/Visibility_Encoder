@@ -25,6 +25,7 @@ class PositionalEncoder(SignalEncoderBase):
         in_dim: int,
         embed_level: int,
         include_input: bool,
+        #return_raw: bool
     ):
         """
         Constructor for PositionalEncoder.
@@ -43,6 +44,8 @@ class PositionalEncoder(SignalEncoderBase):
         self._out_dim = 2 * self._embed_level * self._in_dim
         if self._include_input:
             self._out_dim += self._in_dim
+
+        #self.return_raw = return_raw
 
         # creating embedding function
         self._embed_fns = self._create_embedding_fn()
@@ -102,7 +105,18 @@ class PositionalEncoder(SignalEncoderBase):
             An instance of torch.Tensor of shape (N, self.out_dim).
                 The positional encoding of the input signal.
         """
-        return torch.cat([fn(in_signal) for fn in self._embed_fns], -1)
+        #print("Raw:", in_signal)
+        #if self.return_raw:
+            #return also gradients with respect to raw angles.
+            # https://discuss.pytorch.org/t/newbie-getting-the-gradient-with-respect-to-the-input/12709/2
+        #    in_signal = torch.autograd.Variable(in_signal, requires_grad=True)
+
+        encoded_signal = torch.cat([fn(in_signal) for fn in self._embed_fns], -1)
+
+        # print("Encoded:", encoded_signal)
+
+        # print("Decoded:")
+        return encoded_signal
 
     @property
     def in_dim(self) -> int:

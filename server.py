@@ -1,16 +1,43 @@
 
+from textwrap import indent
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
 from utils.scripts.architectures.train_location_encoder import *
 from utils.test_location_encoder                        import *
 from utils.view_impact                                  import remove_builiding_and_retrain_model, reset_encoder_weights
- 
+from utils.gradient_walk_utils                          import query_locations
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 CORS(app)
 
+# Create locations on facade of the building 
+@app.route('/query_locations', methods=["POST", "GET"])
+def query_locations_page():
+    '''
+    http://127.0.0.1:5000/query_locations
+    or in command line 
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/location.json "http://127.0.0.1:5000/query_locations"
+    '''
+    seed = 11
+    try:
+        data                 = request.json
+        query_df             = pd.DataFrame(data)
+        desired_distribution = [float(x) for x in query_df["f_xyz"].values[0]]
+        num_locations        = int(query_df["num_locations"].values[0])
+        if "seed" in query_df:
+            seed = int(query_df["seed"])
+    except Exception as e:
+        print(e)
+        print(f"Invalid JSON sent in the request - an example of query locations file is in:")
+        print("\t ./utils/assets/query_locations/query_location.json")
+        return jsonify([{"":"Invalid JSON"}])
+
+    al_df = query_locations(desired_distribution, num_locations, seed)
+    al_df.to_csv("./utils/assets/query_locations/query_location.csv", index=False)
+
+    return al_df.to_json(orient="records", indent=4)
 
 # Create locations on facade of the building 
 @app.route('/remove_building', methods=["POST", "GET"])

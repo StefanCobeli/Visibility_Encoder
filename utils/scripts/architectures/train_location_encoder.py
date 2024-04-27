@@ -67,6 +67,22 @@ def get_location_visibility_encoder(enc_input_size, num_present_classes, feat_di
     return encoder_net, criterion, optimizer, scheduler
 
 
+def rescale_from_norm_params(point, mean, dev):
+    '''
+    Inverse of normalize_visibility_dataframe method from train_location_encoder.
+    when norm_columns is passed and where norm_columns values are taken from:
+    (info_dict["xyz_centroid"], info_dict["xyz_max-min"], info_dict["xyzh_centroid"], info_dict["xyzh_max-min"])
+
+    Example:
+    rescale_from_norm_params(trajectory[0][:3], info_dict["xyz_centroid"], info_dict["xyz_max-min"])
+
+    return scaled_point
+    '''
+    scaled_point = (point * dev) + mean
+    
+    return scaled_point
+
+
 def normalize_visibility_dataframe(vis_df, norm_columns, train_mean_dev=None):
     '''
     vis_df normalized on norm_columns
@@ -111,7 +127,7 @@ def normalize_visibility_labels(vis_df, train_mean_dev=None):
     
     return vis_df, label_mean, label_dev
 
-def process_locations_visibility_data_frame(file_store, norm_params=None, min_percentage_per_class=.1, label_split=",", missing_labels=False, selected_label_indexes=None):
+def process_locations_visibility_data_frame(file_store, norm_params=None, min_percentage_per_class=.1, label_split=",", missing_labels=False, selected_label_indexes=[0,1,5,6]):
     '''
     Process locations.csv file from file_store. 
     Table expected columns:
@@ -122,11 +138,12 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     processed_data_frame and indexes of non empty labels
     normalization_paramerers - (xyz_mean, xyz_dev, xyzh_mean, xyzh_dev)
     non_empty_classes        - array with true, false entries based on which f_xyz was kept.
+    return vis_df_n, norm_params, non_empty_classes
     '''
     # print("Processing")
     
     vis_df                                  = pd.read_csv(file_store)
-    vis_df[['x','y',"z", 'xh', 'yh', 'zh']] = vis_df[['x','y',"z", 'xh', 'yh', 'zh']].round(3)
+    # vis_df[['x','y',"z", 'xh', 'yh', 'zh']] = vis_df[['x','y',"z", 'xh', 'yh', 'zh']].round(3)
     
     if norm_params is None:
         vis_df_n, xyz_mean, xyz_dev   = normalize_visibility_dataframe(vis_df, ["x", "y", "z"])
@@ -163,22 +180,23 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     #Keep only labels satisfying condition (occurences or selection)
     vis_df_n["f_xyz"]     = vis_df["f_xyz_raw"].apply(lambda d: \
                                              [p for (p, e) in zip(d, non_empty_classes) if e])
-    #Normalize appearances:
+    #Normalize appearances and strech them between -1, +1:
     vis_df_n["f_xyz"]     = vis_df["f_xyz"].apply(lambda d: [(2 * x) / max_row_value - 1 for x in d]) 
 
     return vis_df_n, norm_params, non_empty_classes
 
-def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1, test_size=0.2, batch_size=32, pos_enc_dim=10, seed=1, only_train=False, only_test=False, missing_labels=False, return_dfs=False):
+def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1, test_size=0.2, batch_size=32, pos_enc_dim=10, seed=1, only_train=False, only_test=False, missing_labels=False, return_dfs=False, return_raw=False):
     """Return train and test loaders based on processed visibility data frame
     pos_enc_dim  # 4 or 10 #See NeRF paper section 5.1 Positional encoding, page 8 - L = 4 or L=10 for γ(d).
     only_train or only_test  - forces the return of only one loader and dataframe without random seed split. 
+    return_raw - dataloader also containing original location and angles with linked gradients.
     return train_loader, test_loader, train_df, test_df (if return_dfs is True)
     return train_loader, test_loader
     """
-    np.random.seed(seed)
     if only_test or only_train:
         loc_df = processed_vis_loc_df
     else:
+        np.random.seed(seed)
         train_df, test_df     = train_test_split(processed_vis_loc_df, test_size=test_size)
 
     label_column_name     = "f_xyz"
@@ -186,7 +204,7 @@ def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1
 
     #a. Enitre dataframe is passed to a single loader (if split is done before dataframe passed to the method).
     if only_test or only_train:
-        loc_dataset     = network.nerf.EncoderNeRFDataset(loc_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, missing_labels=missing_labels)
+        loc_dataset     = network.nerf.EncoderNeRFDataset(loc_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, missing_labels=missing_labels, return_raw=return_raw)
         loc_loader      = torch.utils.data.DataLoader(dataset=loc_dataset, batch_size=batch_size)#, shuffle=True) # load data
         if return_dfs:
             return loc_loader, loc_df 
@@ -198,8 +216,8 @@ def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1
     train_size       = int(train_df.shape[0] * train_set_percentage)
     train_df_subset  = train_df[:train_size]
 
-    training_dataset = network.nerf.EncoderNeRFDataset(train_df_subset, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim)
-    testing_dataset  = network.nerf.EncoderNeRFDataset(test_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim)
+    training_dataset = network.nerf.EncoderNeRFDataset(train_df_subset, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, return_raw=return_raw)
+    testing_dataset  = network.nerf.EncoderNeRFDataset(test_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, return_raw=return_raw)
 
     train_loader = torch.utils.data.DataLoader(dataset=training_dataset, batch_size=batch_size, shuffle=True) # load data
     test_loader  = torch.utils.data.DataLoader(dataset=testing_dataset, batch_size=batch_size, shuffle=True) # load data

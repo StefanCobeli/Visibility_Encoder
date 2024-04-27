@@ -73,6 +73,10 @@ class NeRF(nn.Module):
         # self.sigmoid_actvn = nn.Sigmoid()
         self.sigmoid_actvn = nn.Tanh()
 
+        #Hardcoded positional_encoder
+        self.positional_encoder  = signal_encoder.positional_encoder.PositionalEncoder(pos_dim + view_dir_dim, 10, False)#, return_raw=return_raw)
+
+
     def get_latent_feature(self,
         pos: torch.Tensor,
         view_dir: torch.Tensor):
@@ -127,6 +131,7 @@ class NeRF(nn.Module):
         self,
         pos: torch.Tensor,
         view_dir: torch.Tensor,
+        from_raw:bool=False
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predicts color and density.
@@ -146,19 +151,28 @@ class NeRF(nn.Module):
             rgb (torch.Tensor): Tensor of shape (N, 3).
                 Radiance at the given sample points.
         """
+
+        if from_raw:
+            #Same as in encode_position from EncoderNeRFDataset
+            
+            # print("Raw position:", pos)
+            # print("Raw direction:", view_dir)xwww
+            input_matrix = torch.vstack([pos[:, 0], pos[:, 1], pos[:, 2]\
+                             , view_dir[:, 0], view_dir[:, 1], view_dir[:, 2]]).T
+            encoded_input = self.positional_encoder.encode((input_matrix))
+
+            pos          = encoded_input[:,:encoded_input.shape[1]//2]
+            view_dir     = encoded_input[:,encoded_input.shape[1]//2:]       
+
+            # print("Encoded position:", pos)
+            # print("Encoded direction:", view_dir)
         # check input tensors
-        # if (pos.ndim != 2) or (view_dir.ndim != 2):
-        #     raise ValueError(f"Expected 2D tensors. Got {pos.ndim}, {view_dir.ndim}-D tensors.")
         if pos.shape[0] != view_dir.shape[0]:
             raise ValueError(
                 f"The number of samples must match. Got {pos.shape[0]} and {view_dir.shape[0]}."
             )
         if pos.shape[-1] != self._pos_dim:
             raise ValueError(f"Expected {self._pos_dim}-D position vector. Got {pos.shape[-1]}.")
-        # if view_dir.shape[-1] != self._view_dir_dim:
-        #     raise ValueError(
-        #         f"Expected {self._view_dir_dim}-D view direction vector. Got {view_dir.shape[-1]}."
-        #     )
 
         x = self.relu_actvn(self.fc_in(pos))
         x = self.relu_actvn(self.fc_1(x))
@@ -203,14 +217,18 @@ class NeRF(nn.Module):
 ################ 1. Encoder only with Location
 ################################################################################
 class EncoderNeRFDataset(Dataset):
-    def __init__(self,vis_df=None, label_column_name="f_xyz_rounded", features_column_names=["x", "y", "z", "xh", "yh", "zh"], pos_enc_dim=10, missing_labels=False):
+    def __init__(self,vis_df=None, label_column_name="f_xyz_rounded"\
+        , features_column_names=["x", "y", "z", "xh", "yh", "zh"], pos_enc_dim=10\
+            , missing_labels=False, return_raw=False):
+        # return_raw # Return also original location and angles with linked gradients.
 
-        #pos_enc_dim                = 10   # 4 or 10 #See NeRF paper section 5.1 Positional encoding, page 8 - L = 4 or L=10 for γ(d).
+        #pos_enc_dim                = 10 #Now passed as paramter   # 4 or 10 #See NeRF paper section 5.1 Positional encoding, page 8 - L = 4 or L=10 for γ(d).
         xyz_dim                    = 6 # 6 - x,y,z,xh,yh,zh
         # Setup positional encoder:
-        self.positional_encoder        = signal_encoder.positional_encoder.PositionalEncoder(xyz_dim, pos_enc_dim, False)
+        self.positional_encoder        = signal_encoder.positional_encoder.PositionalEncoder(xyz_dim, pos_enc_dim, False)#, return_raw=return_raw)
         self.features_column_names     = features_column_names
         self.missing_labels            = missing_labels
+        self.return_raw                = return_raw # Return also original location and angles with linked gradients. 
 
         if vis_df is not None:
             self.input_pos, self.input_dir = self.encode_position(vis_df, n=features_column_names)
@@ -228,21 +246,28 @@ class EncoderNeRFDataset(Dataset):
             n= self.features_column_names
         input_matrix   = np.vstack([vis_df[n[0]], vis_df[n[1]], vis_df[n[2]]\
                                     , vis_df[n[3]], vis_df[n[4]], vis_df[n[5]]]).T.astype(np.float32)
+
+        if self.return_raw:
+            # https://discuss.pytorch.org/t/newbie-getting-the-gradient-with-respect-to-the-input/12709/2
+            self.input_matrix = torch.autograd.Variable(torch.from_numpy(input_matrix), requires_grad=True)    
+            self.input_matrix.retain_grad()                             
+        
         encoded_input = self.positional_encoder.encode(torch.tensor(input_matrix))
+
         input_pos     = encoded_input[:,:encoded_input.shape[1]//2]
         input_dir     = encoded_input[:,encoded_input.shape[1]//2:]
 
         return input_pos, input_dir
 
     
-    def encode_np_locations(self, xyz, xyzh):
+    # def encode_np_locations(self, xyz, xyzh):
 
-        input_matrix   = np.hstack([xyz, xyzh]).T.astype(np.float32)
-        encoded_input = self.positional_encoder.encode(torch.tensor(input_matrix))
-        input_pos     = encoded_input[:,:encoded_input.shape[1]//2]
-        input_dir     = encoded_input[:,encoded_input.shape[1]//2:]
+    #     input_matrix   = np.hstack([xyz, xyzh]).T.astype(np.float32)
+    #     encoded_input = self.positional_encoder.encode(torch.tensor(input_matrix))
+    #     input_pos     = encoded_input[:,:encoded_input.shape[1]//2]
+    #     input_dir     = encoded_input[:,encoded_input.shape[1]//2:]
 
-        return input_pos, input_dir
+    #     return input_pos, input_dir
 
     def __getitem__(self,index):
         input_pos, input_dir  = self.input_pos[index], self.input_dir[index]
@@ -251,6 +276,11 @@ class EncoderNeRFDataset(Dataset):
         else:
             output = self.output[index]
             sample = {'input_pos': input_pos, 'input_dir': input_dir, "output" : output, "image_name": self.image_name[index]}
+        if self.return_raw:
+            sample["input_pos_raw"] = self.input_matrix[index][:,:3]#.retain_grad()
+            sample["input_dir_raw"] = self.input_matrix[index][:,3:]#
+            sample["input_pos_raw"].retain_grad()
+            sample["input_dir_raw"].retain_grad()
         return sample
 
     def __len__(self):
