@@ -20,7 +20,11 @@ def query_locations_page():
     or in command line 
     curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/location.json "http://127.0.0.1:5000/query_locations"
     '''
-    seed = 11
+    seed = 11    
+    search_intervals = np.ones(4) * .01 #.2 search_intervals=np.ones(4)*.01, lt=0.01, at=20, max_steps=100)
+    at = 20
+    lt = .01
+    max_steps = 75 #100                    #100
     try:
         data                 = request.json
         query_df             = pd.DataFrame(data)
@@ -34,7 +38,9 @@ def query_locations_page():
         print("\t ./utils/assets/query_locations/query_location.json")
         return jsonify([{"":"Invalid JSON"}])
 
-    al_df = query_locations(desired_distribution, num_locations, seed)
+
+    al_df = query_locations(desired_distribution, num_locations, search_intervals, lt, at, max_steps, seed)
+    #al_df = query_locations(desired_distribution, num_locations, seed)
     al_df.to_csv("./utils/assets/query_locations/query_location.csv", index=False)
 
     return al_df.to_json(orient="records", indent=4)

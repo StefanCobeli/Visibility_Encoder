@@ -20,8 +20,12 @@ from utils.scripts.architectures.torch_nerf_src import network
 
 
 
-def query_locations(desired_distribution, num_locations=10, search_intervals=np.ones(4) * .2, lt=.01, seed=1):
-    '''return num_locations with desired_distribution plus minus the search_intervals with a loss threshold smaller than lt'''
+def query_locations(desired_distribution, num_locations=10, search_intervals=np.ones(4) * .2, lt=.01, at=10, max_steps = 100, seed=1):
+    '''
+    search_intervals:  
+    lt:                loss threshold
+    at:                acceptable factor loss; if loss is at least at * lt then consider the location
+    return num_locations with desired_distribution plus minus the search_intervals with a loss threshold smaller than lt'''
     
     np.random.seed(seed)
     
@@ -31,12 +35,13 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
     
     num_ps      = [] #number performed_steps
     mean_losses = [] # final mean losses for each pair input target
+    residuals   = [] # MSE between desired and actual percentages
     targets     = [] #(achieved, desired)
     locations   = [] #(start, achieved)
     spatial_differences = [] #(initial, final)
 
     n_trials  = num_locations
-    max_steps = 100
+    #max_steps = 100
 
     custom_target_d = desired_distribution #Distribution in percentages 
     desired_target  = (np.array(custom_target_d) * 2 - 1).tolist() #Distribution in tanh
@@ -53,13 +58,14 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
         actual_target = targets_array[crt_id]
 
             
-        achieved_loc, perc_pred, tr, gn, prds, lstr, ps = gradient_walk(actual_loc, desired_target, search_intervals, max_steps, lt, True)
+        achieved_loc, perc_pred, tr, gn, prds, lstr, ps, fr = gradient_walk(actual_loc, desired_target, search_intervals, max_steps, lt, True)
 
-        if lstr[-1].mean() < lt:
+        if lstr[-1].mean() < (at * lt):
             locations.append((actual_loc, achieved_loc))
 
             num_ps.append(ps)
             mean_losses.append(lstr[-1].mean())
+            residuals.append(fr)
 
             start    =  [(at+1)/2 for at in actual_target]
             achieved =  perc_pred
@@ -77,7 +83,9 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
     ach_locs = [l[1] for l in locations]
     al_df    = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
     
-    al_df["f_xyz"] = [t[0] for t in targets]
+    al_df["f_xyz"]     = [t[0] for t in targets]
+    al_df["residual"]  = residuals
+    al_df["steps"]     = num_ps
     
     return al_df
 
@@ -101,6 +109,7 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
     gradients_norm  = []
     predictions     = []
     loss_trajectory = []
+    residuals       = []
 
 
     input_pos = torch.autograd.Variable(sample_batch["input_pos_raw"], requires_grad=True)
@@ -165,10 +174,19 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
 
         if loss.mean() < loss_threshold:
             break
+    #final_residual = 0
+    # print(sample_batch["output"].detach().numpy()[0], desired_target, predictions[-1])
+    desired_percentages = (sample_batch["output"][0] + 1) / 2
+    actual_percentages  = torch.Tensor(predictions[-1])
+    # if MSE residual:
+    final_residual = criterion(desired_percentages, actual_percentages).mean().detach().item()
+    # if RMSE residual:
+    final_residual = torch.sqrt(criterion(desired_percentages, actual_percentages)).mean().detach().item()
     
+    #print(final_residual, desired_percentages, actual_percentages)
     performed_steps = i
     if debugging_return:
-        return actual_loc, perc_pred, trajectory, gradients_norm, predictions, loss_trajectory, performed_steps
+        return actual_loc, perc_pred, trajectory, gradients_norm, predictions, loss_trajectory, performed_steps, final_residual
     
     return actual_loc, perc_pred
 
