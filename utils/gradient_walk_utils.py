@@ -11,6 +11,7 @@ import os
 
 
 from utils.geometry_utils import *
+from utils.geometry_utils import surface_parametric
 from utils.test_location_encoder import parse_training_info
 
 from utils.scripts.architectures.train_location_encoder import *
@@ -19,8 +20,143 @@ from utils.scripts.architectures.torch_nerf_src import network
 # from utils.scripts.architectures.train_location_encoder import rescale_from_norm_params 
 
 
+def query_locations_on_surface(desired_distribution, surface_basis, surface_type, num_locations=10, search_intervals=np.ones(4) * .2, lt=.01, lrate=10, max_steps = 100, seed=1):
+    '''Similar in api to query_locations
+    Returns the same dataframe al_df for easy server posting'''
+    
+    set_seed(seed)
+    
+    n_trials  = num_locations * 10
+    #Needed just for view_dir intialization
+    vis_df, normp, _   = process_locations_visibility_data_frame("./utils/assets/test_data/locations_example.csv")  
+    locs_array         = vis_df.values[:,:6].astype(float)
+    
+    ach_locs    = []
+    debug_dicts = []
 
-def query_locations(desired_distribution, num_locations=10, search_intervals=np.ones(4) * .2, lt=.01, at=10, max_steps = 100, seed=1):
+    for i in tqdm(range(n_trials)):
+        
+        view_dir           = torch.tensor(locs_array[np.random.randint(locs_array.shape[0])][3:], requires_grad=True) # change view_dir to random picking
+        a, b               = torch.rand(2) 
+        parameters         = (a, b)
+        
+        raw_pos, debugging_dict = gradient_walk_on_surface(parameters, view_dir, desired_distribution, surface_basis, surface_type\
+                 , intervals=search_intervals, n_steps=max_steps, loss_threshold=lt, lrate=lrate, debugging_return=True, verbose=False)
+        
+        ach_locs.append(np.hstack([raw_pos, debugging_dict["last_view_dir"]]))
+        debug_dicts.append(debugging_dict)
+        
+        if len(ach_locs) >= num_locations:
+            break 
+        
+    al_df               = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
+    
+    al_df["f_xyz"]      = [d["predictions"][-1] for d in debug_dicts]
+    al_df["residual"]   = [d["final_residual"] for d in debug_dicts]
+    al_df["steps"]      = [len(d["trajectory"]) for d in debug_dicts]
+    al_df["start_locs"] = [d["trajectory"][0] for d in debug_dicts]
+    
+    return al_df
+
+
+def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis, surface_type, intervals=np.ones(4) * .1, n_steps=10, loss_threshold=0.1, lrate=5*1e-2, debugging_return=True, verbose=True):
+    ''' 
+    parameters - (init_a, init_b) between 0 and 1
+    view_dir - xyzh between -180, 180.
+    desired_target - normalized percentages [0, 1] - normalizetion to tanh -1,1 happens in EncoderNeRFSDataset
+    
+    returns either
+        raw_pos, perc_pred
+    or if debugging_return:
+        raw_pos, deb_dict
+    '''
+    #Intial parameters
+    init_a, init_b = parameters #TODO make intial a and b to be according to designated location / Implement inverse transformation. xyz -> ab
+    p, c, r        = surface_basis
+    #0. Load trained model
+    #TODO: pcr to be mixed in a single paramters variable.
+    trained_encoder, info_dict = initialize_trained_encoder()
+    norm_params                = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
+    trained_encoder            = network.nerfs.NeRFS(p, c, r, norm_params, surface_type=surface_type, pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
+    trained_encoder.load_state_dict(torch.load(f"./utils/assets/models/encoder_350.pt"))
+    criterion                  = torch.nn.MSELoss(reduction='none')
+    
+    #0. Load data to torch dataset
+    #TODO: remove pcr from dataset condructor and surface_type
+    param_ds     = network.nerfs.EncoderNeRFSDataset(init_a, init_b, p, c, r, view_dir, desired_target, "square", norm_params)
+    sample_batch = param_ds[0]
+    input_a, input_b, input_dir = sample_batch["a"], sample_batch["b"], sample_batch["view_dir"]
+    # lrate      = 5*1e-2
+    optimizer  = torch.optim.Adam(params=[input_a, input_b, view_dir], lr=lrate)
+    
+    gradients_norm  = []; predictions = []; trajectory = []; loss_trajectory = []; inputs = []; #trajectory_view_dir = []#maybe trajectory view if needed
+    if verbose:
+        parsing_bar     = tqdm(range(n_steps))
+    else:
+        parsing_bar = range(n_steps)
+    
+    for i in parsing_bar:
+
+        inputs.append((input_a.detach().numpy().tolist(), input_b.detach().numpy().tolist(), input_dir.detach().numpy().tolist()))
+        ##### a. Predict output distribution
+        raw_pos, raw_view, output     = trained_encoder(input_a, input_b, input_dir)
+        prediction = (output.detach().numpy()); labels = sample_batch["output"]
+        
+        perc_pred         = (prediction[0] + 1) / 2
+        predictions.append(perc_pred)
+        trajectory.append((raw_pos.detach().numpy()))
+
+        #Adaptive labels to interval:
+        if intervals is not None:
+            interval_target = interval_desired_target_loss(prediction, labels.numpy(), intervals)
+            labels          = interval_target
+
+        ##### b. Compute loss
+        loss      = criterion(output, labels)
+
+        ##### c. Gradient step using optimizer:
+        optimizer.zero_grad()
+        loss.mean().backward(retain_graph=True)
+        #loss.mean().backward()
+        a_grad, b_grad, dir_grad = input_a.grad, input_b.grad, input_dir.grad
+        optimizer.step()
+        if not((0 < input_a.item() < 1) and (0 < input_b.item() < 1)):
+            break
+
+        ##### d. Log found gradients and predictions as percentages
+        loss_trajectory.append(loss.detach().numpy())
+
+        pos_grad_norm     = (np.linalg.norm(a_grad), np.linalg.norm(b_grad), np.linalg.norm(dir_grad))
+        gradients_norm.append(pos_grad_norm)
+        
+        if verbose:
+            parsing_bar.set_description(f"Gradient norm: a {pos_grad_norm[0]:.4f}, b {pos_grad_norm[1]:.4f}, dir {pos_grad_norm[2]:.4f}")
+
+        if loss.mean() < loss_threshold:
+            break
+    
+           
+    desired_percentages = (sample_batch["output"] + 1) / 2
+    actual_percentages  = torch.Tensor(predictions[-1])
+    # if MSE residual:
+    final_residual = criterion(desired_percentages, actual_percentages).mean().detach().item()
+    # # if RMSE residual:
+    # final_residual = torch.sqrt(criterion(desired_percentages, actual_percentages)).mean().detach().item()
+    #print(final_residual, desired_percentages, actual_percentages.detach().numpy().round(2))
+    
+    raw_pos = trajectory[-1]
+    if debugging_return:
+        debugging_dict = {"final_residual":final_residual, "trajectory":trajectory, "last_view_dir":raw_view.detach().numpy(), "predictions":predictions, "gradients_norm":gradients_norm, "loss_trajectory":loss_trajectory, "inputs":inputs}
+        return raw_pos, debugging_dict
+    else:
+        return raw_pos, perc_pred
+
+
+#######
+###### Querying without Surface:
+######
+
+def query_locations(desired_distribution, num_locations=10, search_intervals=np.ones(4) * .2, lt=.01, at=10, max_steps = 100, seed=1, debugging=False):
     '''
     search_intervals:  
     lt:                loss threshold
@@ -57,10 +193,10 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
         actual_loc    = locs_array[crt_id]
         actual_target = targets_array[crt_id]
 
-            
+        ### Gradient Walk: - For each location until finding num_locations.
         achieved_loc, perc_pred, tr, gn, prds, lstr, ps, fr = gradient_walk(actual_loc, desired_target, search_intervals, max_steps, lt, True)
 
-        if lstr[-1].mean() < (at * lt):
+        if lstr[-1].mean() < (at * lt): #if last loss is lower than - theshold x acceptaple factor # loss trajectory
             locations.append((actual_loc, achieved_loc))
 
             num_ps.append(ps)
@@ -74,11 +210,8 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
         
         if len(locations) >= num_locations:
             break
-          
-    #print(vis_df.columns.values)
-    #print(vis_df.iloc[0])
-    
-    #print(pd.DataFrame(data=locations[0], columns=vis_df.columns.values[:6]))
+
+    #print(vis_df.columns.values)    #print(vis_df.iloc[0])   #print(pd.DataFrame(data=locations[0], columns=vis_df.columns.values[:6]))
     
     ach_locs = [l[1] for l in locations]
     al_df    = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
@@ -86,6 +219,7 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
     al_df["f_xyz"]     = [t[0] for t in targets]
     al_df["residual"]  = residuals
     al_df["steps"]     = num_ps
+    al_df["start_locs"] = [l[0][:3] for l in locations] #only xyz locations without angles
     
     return al_df
 
@@ -93,8 +227,8 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
 def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_threshold=0, debugging_return=False, optimizer=None, verbose=False):
     '''
     Go from actual_loc to location looking like desired_target
-    actual_loc     - x,y,z,zh,yh,zh;
-    desired_target - [b,w,t,s] - according to the default model in - initialize_trained_encoder()
+    actual_loc     - x,y,z,zh,yh,zh; - not normalized
+    desired_target - [b,w,t,s] - tanh normalized -1,1 / according to the default model in - initialize_trained_encoder()
     if debugging_return:
         return actual_loc, perc_pred, trajectory, gradients_norm, predictions, loss_trajectory, performed_steps
     return actual_loc, perc_pred
@@ -161,7 +295,7 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
         predictions.append(perc_pred)
 
         if verbose:
-            parsing_bar.set_description(f"Gradient norm: loc {pos_grad_norm[0]:.4f}, dir {pos_grad_norm[0]:.4f}")
+            parsing_bar.set_description(f"Gradient norm: loc {pos_grad_norm[0]:.4f}, dir {pos_grad_norm[1]:.4f}")
 
         ##### add location to trajectory
         scaled_loc = rescale_from_norm_params(input_pos.detach().numpy()[0], info_dict["xyz_centroid"], info_dict["xyz_max-min"])
@@ -261,31 +395,123 @@ def initialize_trained_encoder():
     
     return trained_encoder, info_dict
 
-def intialize_input_as_tensor(mock_location, mock_target, info_dict):
+def intialize_input_as_tensor(mock_location, mock_target, info_dict, on_surface=None):
     '''
         return  a data loader from input mock_location and output mock_target, according to info_dict encoidng information
         sample_batch = intialize_input_as_tensor(mock_location, mock_target, info_dict)
+        mock_location is (1, 6) list -> RAW location - "x", "y", "z", "xh", "yh", "zh".
     '''
     
     norm_params     = (info_dict["xyz_centroid"], info_dict["xyz_max-min"], info_dict["xyzh_centroid"], info_dict["xyzh_max-min"])
     
-    test_df    = pd.DataFrame(mock_location, ["x", "y", "z", "xh", "yh", "zh"]).T
-    test_df["f_xyz"] = [mock_target]
-    test_df["image_name"] = "no_image_name"
-    test_name  = "_".join(test_df[["x", "y", "z"]].astype(int).values[0].astype(str))
+    test_df                = pd.DataFrame(mock_location, ["x", "y", "z", "xh", "yh", "zh"]).T
+    test_df["f_xyz"]       = [mock_target]
+    test_df["image_name"]  = "no_image_name"
+    test_name              = "_".join(test_df[["x", "y", "z"]].astype(int).values[0].astype(str))
 
     test_path = f"./utils/assets/test_data/location_single_{test_name}.csv"
 
     # test_df = curr_neigborhood
     test_df.to_csv(test_path, index=False)
-    ml = True # skip label normalization
+    ml = True # missing_labels / skip label normalization
     test_df, _, _   = process_locations_visibility_data_frame(test_path, norm_params, selected_label_indexes=info_dict["sli"], missing_labels=ml)
 
+
     #1.Data loader from points
-    ml = False # don't skip labels in the dataloader
-    test_dl  = get_location_visibility_loaders(test_df, missing_labels=ml, only_test=True, batch_size=16, return_raw=True)
+    ml = False # not missing_labels / don't skip labels in the dataloader
+    test_dl  = get_location_visibility_loaders(test_df, missing_labels=ml, only_test=True, batch_size=16, return_raw=True, on_surface=on_surface, norm_params=norm_params)
+    # if on_surface is None:
+    #     test_dl  = get_location_visibility_loaders(test_df, missing_labels=ml, only_test=True, batch_size=16, return_raw=True, on_surface=None, norm_params=None)
+    # else:
+
 
     os.remove(test_path)
     sample_batch = test_dl.sampler.data_source[:1]
     
     return sample_batch
+
+
+import random
+def set_seed(seed: int = 42) -> None:
+    """
+    Check:
+    https://wandb.ai/sauravmaheshkar/RSNA-MICCAI/reports/How-to-Set-Random-Seeds-in-PyTorch-and-Tensorflow--VmlldzoxMDA2MDQy#setting-up-random-seeds-in-pytorch
+    """
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
+
+
+
+
+############################################################
+###### Draw queried locations experiment for exploration:###
+############################################################
+from utils.scripts.interest_heuristic_0    import get_o3d_pcd_from_coordinates
+import open3d as o3d
+def analyze_queried_locations(al_df=None, n_colors = 5, res_filter_threshold = .5, draw_o3d=True):
+    """Invistigate queried locations Color Scene by label categories and label pallete: VIS 2024 figure 
+    developed in iNeRF_adaption.ipynb"""
+    vis_df, normp, _   = process_locations_visibility_data_frame("./utils/assets/test_data/locations_example.csv")
+
+    
+    targets_array = ((np.vstack(vis_df["f_xyz"])+1)/2)
+    locs_array    = (vis_df.values)[:,:3]
+    geometries    = []
+    if "start_locs" in al_df:
+        start_locs   = np.vstack(al_df["start_locs"].values)
+        strat_colors = np.ones_like(start_locs) * .8
+        start_pcd = get_o3d_pcd_from_coordinates(start_locs, strat_colors)
+        geometries.append(start_pcd)
+
+    #start_locs    = locs_array#np.vstack(al_df["start_locs"].values)[:,:3]#np.vstack([l[0] for l in locations])[:,:3]
+    #start_targets = ((np.vstack(vis_df["f_xyz"])+1)/2)#np.array([t[0] for t in targets])
+    
+    if al_df is not None:
+        achieved_locs = al_df.values[:,:3]#np.vstack([l[1] for l in locations])[:,:3]
+        mean_losses   = np.array(al_df["residual"].values)
+        scaled_residuals = mean_losses #/ mean_losses.max()
+        filtered_ids  = np.where(scaled_residuals<res_filter_threshold)[0] #np.where(np.array(mean_losses)<.5)[0]
+        #err_pallete = sns.color_palette("coolwarm", n_colors=n_colors)# Blue to Orange
+        #err_pallete = sns.diverging_palette(125, 5, as_cmap=False, n=n_colors, s=60)# Greento Red
+        err_pallete = sns.diverging_palette(260, 5, as_cmap=False, n=n_colors, s=60) # Blue to Red
+        # loss_colors = np.array([err_pallete[::-1][int(ml*n_colors)-1] for ml in scaled_residuals])
+        loss_colors = np.array([err_pallete[::-1][int(ml*n_colors)-1] for ml in mean_losses - mean_losses.min()])
+        # loss_colors = np.array([err_pallete[int(ml*n_colors)-1] for ml in mean_losses - mean_losses.min()])
+
+    ###Label colors pallete
+    label_pallete        = sns.color_palette("tab10", n_colors=4) #[Buildings, Water, Trees, Sky]
+    label_pallete[1]     = label_pallete[0]; label_pallete[0] = (0.549, 0.471, 0.318); label_pallete[3] = (1, 0.847, 0.012) #ffd803
+    full_dominant_label  = np.argmax(targets_array > np.array(targets_array).mean(axis=0), axis=1)
+    #start_dominant_label = np.argmax(start_targets > start_targets.mean(axis=0), axis=1)
+    #start_label_colors = np.take(label_pallete, start_dominant_label, axis=0)
+    full_locs = locs_array[:,:3][full_dominant_label!=3]
+    full_label_colors  = np.take(label_pallete, full_dominant_label, axis=0)[full_dominant_label!=3]
+    # full_label_colors = np.hstack([full_label_colors, np.ones((full_label_colors.shape[0], 1))*.2])
+
+    #O3D point cloud assembly:
+    # full_pcd      = get_o3d_pcd_from_coordinates(locs_array[:,:3], [0,1,0])
+    full_pcd      = get_o3d_pcd_from_coordinates(full_locs, full_label_colors)
+    # start_pcd     = get_o3d_pcd_from_coordinates(start_locs, [0,1,0])
+    # start_pcd    = get_o3d_pcd_from_coordinates(start_locs, start_label_colors)
+    geometries.append(full_pcd)# = [full_pcd]
+    
+    if al_df is not None:
+        #adapted_pcd  = get_o3d_pcd_from_coordinates(achieved_locs, loss_colors)
+        filtered_pcd = get_o3d_pcd_from_coordinates(achieved_locs[filtered_ids], loss_colors[filtered_ids])
+        geometries.append(filtered_pcd)
+
+    if draw_o3d:
+        # o3d.visualization.draw_geometries([start_pcd])
+        # o3d.visualization.draw_geometries([full_pcd])
+        # o3d.visualization.draw_geometries([full_pcd, adapted_pcd])
+        o3d.visualization.draw_geometries(geometries)
+
+    return geometries#, achieved_locs, loss_colors, scaled_residuals, err_pallete, filtered_ids

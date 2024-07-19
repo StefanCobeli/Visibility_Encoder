@@ -5,14 +5,56 @@ from flask_cors import CORS, cross_origin
 from utils.scripts.architectures.train_location_encoder import *
 from utils.test_location_encoder                        import *
 from utils.view_impact                                  import remove_builiding_and_retrain_model, reset_encoder_weights
-from utils.gradient_walk_utils                          import query_locations
+from utils.gradient_walk_utils                          import query_locations, query_locations_on_surface
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 CORS(app)
 
-# Create locations on facade of the building 
+
+@app.route('/query_plane_locations', methods=["POST", "GET"])
+def query_plane_locations_page():
+    '''
+    http://127.0.0.1:5000/query_locations_plane
+    or in command line 
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/query_plane.json "http://127.0.0.1:5000/query_plane_locations"
+    '''
+    seed = np.random.randint(10**6)
+    si   = np.ones(4) * .5 # search intervals
+    lt   =.01      # loss threshould under which the optimization is stopped.
+    lr   = 5*1e-3 #learning rate for optimization on the plane
+    ms   = 50     # maximum optimization steps
+    
+    try:
+        data                 = request.json
+        query_df             = pd.DataFrame(data)
+        
+        p = torch.tensor([float(x) for x in query_df["point_on_plane"].values[0]]).to(torch.float32)
+        c = torch.tensor([float(x) for x in query_df["point_plus_normal"].values[0]]).to(torch.float32)
+        r = torch.tensor([float(x) for x in query_df["r"].values[0]])
+        
+        desired_distribution = torch.tensor([float(x) for x in query_df["f_xyz"].values[0]]).to(torch.float32)
+        surface_basis        = (p, c, r); surface_type = "square"
+        num_locations        = int(query_df["num_locations"].values[0])
+        if "seed" in query_df:
+            seed = int(query_df["seed"])
+    except Exception as e:
+        print(e)
+        print(f"Invalid JSON sent in the request - an example of query locations file is in:")
+        print("\t ./utils/assets/query_locations/query_plane.json")
+        return jsonify([{"":"Invalid JSON"}])
+
+    
+    al_df    = query_locations_on_surface(desired_distribution, surface_basis, surface_type\
+       , num_locations=num_locations, search_intervals=si, lt=lt, lrate=lr, max_steps = ms, seed=seed)
+    
+    # al_df.to_csv("./utils/assets/query_locations/queried_locations_plane.csv", index=False)
+    al_df.to_json("./utils/assets/query_locations/queried_locations_plane.csv", orient="records", indent=4)
+
+    return al_df.to_json(orient="records", indent=4)
+
+
 @app.route('/query_locations', methods=["POST", "GET"])
 def query_locations_page():
     '''
@@ -20,10 +62,11 @@ def query_locations_page():
     or in command line 
     curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/location.json "http://127.0.0.1:5000/query_locations"
     '''
-    seed = 11    
+    # seed = 11  # Returns always the same results. Comment this to get different locations.  
+    seed             = np.random.randint(10**6) # Don't set seeds on the locations.json to get random locations
     search_intervals = np.ones(4) * .01 #.2 search_intervals=np.ones(4)*.01, lt=0.01, at=20, max_steps=100)
-    at = 20
-    lt = .01
+    at = 100  # acceptable factor loss; if loss is at least at * lt then consider the location
+    lt = .01 # loss threshold. Don't perform additional steps if the loss is already lt.
     max_steps = 75 #100                    #100
     try:
         data                 = request.json
@@ -35,7 +78,7 @@ def query_locations_page():
     except Exception as e:
         print(e)
         print(f"Invalid JSON sent in the request - an example of query locations file is in:")
-        print("\t ./utils/assets/query_locations/query_location.json")
+        print("\t ./utils/assets/query_locations/location.json")
         return jsonify([{"":"Invalid JSON"}])
 
 
@@ -45,7 +88,7 @@ def query_locations_page():
 
     return al_df.to_json(orient="records", indent=4)
 
-# Create locations on facade of the building 
+
 @app.route('/remove_building', methods=["POST", "GET"])
 def remove_building_page():
     '''

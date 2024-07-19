@@ -116,7 +116,7 @@ class PositionalEncoder(SignalEncoderBase):
         # print("Encoded:", encoded_signal)
 
         # print("Decoded:")
-        return encoded_signal
+        return encoded_signal.to(torch.float32)
 
     @property
     def in_dim(self) -> int:

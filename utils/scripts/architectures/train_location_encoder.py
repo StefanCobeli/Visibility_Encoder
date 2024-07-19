@@ -185,7 +185,7 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
 
     return vis_df_n, norm_params, non_empty_classes
 
-def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1, test_size=0.2, batch_size=32, pos_enc_dim=10, seed=1, only_train=False, only_test=False, missing_labels=False, return_dfs=False, return_raw=False):
+def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1, test_size=0.2, batch_size=32, pos_enc_dim=10, seed=1, only_train=False, only_test=False, missing_labels=False, return_dfs=False, return_raw=False, on_surface=None, norm_params=None):
     """Return train and test loaders based on processed visibility data frame
     pos_enc_dim  # 4 or 10 #See NeRF paper section 5.1 Positional encoding, page 8 - L = 4 or L=10 for γ(d).
     only_train or only_test  - forces the return of only one loader and dataframe without random seed split. 
@@ -204,7 +204,7 @@ def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1
 
     #a. Enitre dataframe is passed to a single loader (if split is done before dataframe passed to the method).
     if only_test or only_train:
-        loc_dataset     = network.nerf.EncoderNeRFDataset(loc_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, missing_labels=missing_labels, return_raw=return_raw)
+        loc_dataset     = network.nerf.EncoderNeRFDataset(loc_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, missing_labels=missing_labels, return_raw=return_raw, on_surface=on_surface, norm_params=norm_params)
         loc_loader      = torch.utils.data.DataLoader(dataset=loc_dataset, batch_size=batch_size)#, shuffle=True) # load data
         if return_dfs:
             return loc_loader, loc_df 
@@ -216,8 +216,8 @@ def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1
     train_size       = int(train_df.shape[0] * train_set_percentage)
     train_df_subset  = train_df[:train_size]
 
-    training_dataset = network.nerf.EncoderNeRFDataset(train_df_subset, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, return_raw=return_raw)
-    testing_dataset  = network.nerf.EncoderNeRFDataset(test_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, return_raw=return_raw)
+    training_dataset = network.nerf.EncoderNeRFDataset(train_df_subset, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, return_raw=return_raw, on_surface=on_surface, norm_params=norm_params)
+    testing_dataset  = network.nerf.EncoderNeRFDataset(test_df, label_column_name=label_column_name, features_column_names=features_column_names, pos_enc_dim=pos_enc_dim, return_raw=return_raw, on_surface=on_surface, norm_params=norm_params)
 
     train_loader = torch.utils.data.DataLoader(dataset=training_dataset, batch_size=batch_size, shuffle=True) # load data
     test_loader  = torch.utils.data.DataLoader(dataset=testing_dataset, batch_size=batch_size, shuffle=True) # load data

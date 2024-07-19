@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 
+import numpy as np
 
 
 from utils.scripts.architectures.torch_nerf_src import signal_encoder
@@ -131,7 +132,8 @@ class NeRF(nn.Module):
         self,
         pos: torch.Tensor,
         view_dir: torch.Tensor,
-        from_raw:bool=False
+        from_raw:bool=False,
+        on_surface: torch.Tensor=torch.empty(0)
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predicts color and density.
@@ -144,6 +146,8 @@ class NeRF(nn.Module):
                 Coordinates of sample points along rays.
             view_dir (torch.Tensor): Tensor of shape (N, self.dir_dim).
                 View direction vectors.
+            from_raw: directly from normalized coordinates and angles. (i.e. 6-dim input rather than 6 * enc_dim) 
+            on_surface: 
 
         Returns:
             sigma (torch.Tensor): Tensor of shape (N, ).
@@ -151,6 +155,14 @@ class NeRF(nn.Module):
             rgb (torch.Tensor): Tensor of shape (N, 3).
                 Radiance at the given sample points.
         """
+
+        # print("Normalized inputs:", pos, view_dir)
+        if on_surface.numel() != 0:
+            # If the parametrs of a surface were passed, infer pos and view_dir from parameters and set from_raw = True
+            # get postion from parametric surface:
+            pos      = None #get pos from surface parameters and pos
+            view_dir = view_dir #None # view)dir
+            pass
 
         if from_raw:
             #Same as in encode_position from EncoderNeRFDataset
@@ -164,6 +176,7 @@ class NeRF(nn.Module):
             pos          = encoded_input[:,:encoded_input.shape[1]//2]
             view_dir     = encoded_input[:,encoded_input.shape[1]//2:]       
 
+        # print("Encoded inputs:", pos, view_dir)
             # print("Encoded position:", pos)
             # print("Encoded direction:", view_dir)
         # check input tensors
@@ -219,7 +232,7 @@ class NeRF(nn.Module):
 class EncoderNeRFDataset(Dataset):
     def __init__(self,vis_df=None, label_column_name="f_xyz_rounded"\
         , features_column_names=["x", "y", "z", "xh", "yh", "zh"], pos_enc_dim=10\
-            , missing_labels=False, return_raw=False):
+            , missing_labels=False, return_raw=False, on_surface=None, norm_params=None):
         # return_raw # Return also original location and angles with linked gradients.
 
         #pos_enc_dim                = 10 #Now passed as paramter   # 4 or 10 #See NeRF paper section 5.1 Positional encoding, page 8 - L = 4 or L=10 for γ(d).
@@ -229,6 +242,10 @@ class EncoderNeRFDataset(Dataset):
         self.features_column_names     = features_column_names
         self.missing_labels            = missing_labels
         self.return_raw                = return_raw # Return also original location and angles with linked gradients. 
+
+        if on_surface is not None:
+            #self.surface_parameters  = 
+            self.norm_params         = norm_params
 
         if vis_df is not None:
             self.input_pos, self.input_dir = self.encode_position(vis_df, n=features_column_names)
@@ -291,6 +308,7 @@ class EncoderNeRFDataset(Dataset):
 ################################################################################
 ################ 2. DEPRECATED Encoder with Location AND Visual ###########################
 ################################################################################
+'''
 class EncoderNeRFDatasetVisual(Dataset):
     """!!!!!!!!!!!
     !!!!DEPRECATED
@@ -399,4 +417,4 @@ class EncoderModel(nn.Module):
         out =self.fc6(out)
         out= self.sigmoid(out)
         return out
-     
+'''

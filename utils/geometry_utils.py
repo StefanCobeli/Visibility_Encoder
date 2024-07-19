@@ -109,3 +109,80 @@ def get_facade_from_ordered_vertices(four_ordered_vertices, num_points=10):
             ]
 
     return np.vstack(half_facades)
+
+
+
+'''
+Parametic Surface generation
+'''
+import torch
+
+def surface_parametric(a, b, p, c, r, surface_type="circle", debugging=False):
+    """
+    a, b - parameters between 0, 1 (can be random)
+    p, c - 3d points defining the surface - prefereably torch tensors
+    r, surface_type="circle", lL=None, debugging=False
+    returns:
+    final_point - 3d point correspondig to the parameters ab, on the surface pc.
+    """
+    a = torch.tensor([float(a)], requires_grad=True)
+    b = torch.tensor([float(b)], requires_grad=True)
+    p = torch.tensor(np.array(p, dtype=float), requires_grad=True)
+    c = torch.tensor(np.array(c, dtype=float), requires_grad=True)
+    # Calculate the vector pc
+    pc      = c - p
+    pc_norm = torch.norm(pc)
+    pc      = pc / pc_norm
+    orient  = torch.tensor([1,1, (- pc[0] - pc[1]) / pc[2]])
+    orient  = orient / torch.norm(orient)
+
+    # Normalize pc to get the direction
+    pc_normalized = pc / pc_norm
+
+    # Find a vector perpendicular to pc
+    v_perpendicular = torch.cross(pc_normalized, orient)
+
+    # Normalize v_perpendicular
+    v_perpendicular_normalized = v_perpendicular / torch.norm(v_perpendicular)
+    
+    if surface_type =="circle":
+        # Calculate angle theta
+        theta = 2 * np.pi * a
+        # Calculate the point on the circle
+        circle_point = p + r * (torch.cos(theta) * orient + torch.sin(theta) * v_perpendicular_normalized)
+        # Interpolate between p and the circle_point using parameter b
+        final_point = (1 - b) * p + b * circle_point
+        if debugging:
+            print(pc, a,b,orient, pc_norm, theta, circle_point, final_point)
+    if surface_type == "square":
+        # Calculate the point on the circle
+        # if lL is None:
+        #     lL = (r, r); l,L=lL
+        l, L = r
+        a = l * a#  * 2
+        b = L * b#  * 2 
+        # p_min = p - l * orient - L * v_perpendicular_normalized
+        # square_point = p + r * (a * orient + (b) * v_perpendicular_normalized)
+        square_point = p + a * v_perpendicular_normalized + b * orient 
+        final_point  = square_point
+        if debugging:
+            print(pc, a,b,orient, pc_norm, theta, circle_point, final_point)
+        
+    if surface_type == "sphere":  
+        #r     = pc_norm
+        theta = a * torch.pi     #between 0 and pi
+        phi   = b * 2 * torch.pi #between 0 and 2*pi
+
+        x = c[0] + r * torch.sin(theta) * torch.cos(phi)
+        y = c[1] + r * torch.sin(theta) * torch.sin(phi)
+        z = c[2] + r * torch.cos(theta)
+
+        final_point = c + torch.tensor([r * torch.sin(theta) * torch.cos(phi),0,0])
+        final_point = final_point + torch.tensor([0, r * torch.sin(theta) * torch.sin(phi),0])
+        final_point = final_point + torch.tensor([0, 0, r * torch.cos(theta)])
+       
+        if debugging:
+            print(pc, a,b,orient, pc_norm, theta, circle_point, final_point)
+    
+
+    return final_point.to(torch.float32)
