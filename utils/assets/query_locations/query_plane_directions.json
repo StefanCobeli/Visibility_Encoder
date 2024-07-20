@@ -7,9 +7,10 @@
             0
         ],
         "point_on_plane": [-300, 60, -292],
-        "point_plus_normal": [-300, 10, -292],
-        "r": [-3500, 2500],
+        "direction_1": [0, 0, 1],
+        "direction_2": [1, 0, 0],
+        "r": [3500, 2500],
         "num_locations":2,
-        "seed":20
+        "seed":25
     }
 ]

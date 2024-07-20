@@ -31,7 +31,15 @@ def query_plane_locations_page():
         query_df             = pd.DataFrame(data)
         
         p = torch.tensor([float(x) for x in query_df["point_on_plane"].values[0]]).to(torch.float32)
-        c = torch.tensor([float(x) for x in query_df["point_plus_normal"].values[0]]).to(torch.float32)
+        if "point_plus_normal" in query_df:
+            c = torch.tensor([float(x) for x in query_df["point_plus_normal"].values[0]]).to(torch.float32)
+            #optional_directions = None
+        else:
+            #c = None
+            direction_1 = ([float(x) for x in query_df["direction_1"].values[0]])
+            direction_2 = ([float(x) for x in query_df["direction_2"].values[0]])
+            c = (direction_1, direction_2)
+            #print(c)
         r = torch.tensor([float(x) for x in query_df["r"].values[0]])
         
         desired_distribution = torch.tensor([float(x) for x in query_df["f_xyz"].values[0]]).to(torch.float32)
@@ -41,8 +49,9 @@ def query_plane_locations_page():
             seed = int(query_df["seed"])
     except Exception as e:
         print(e)
-        print(f"Invalid JSON sent in the request - an example of query locations file is in:")
+        print(f"Invalid JSON sent in the request - two examples of query locations on a plane are is in:")
         print("\t ./utils/assets/query_locations/query_plane.json")
+        print("\t ./utils/assets/query_locations/query_plane_directions.json")
         return jsonify([{"":"Invalid JSON"}])
 
     

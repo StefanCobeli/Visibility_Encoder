@@ -208,6 +208,7 @@ class NeRFS(nn.Module):
 class ParametricSurface:
     """
     Base class for Parametric Surfaces.
+    optional_directions to initialize 
     """
 
     def __init__(self, p, c, r, surface_type):
@@ -215,27 +216,34 @@ class ParametricSurface:
         self.c            = c#torch.tensor(c)
         self.r            = r#torch.tensor(r)
         self.surface_type = surface_type
-        pc      = (c - p) + 1e-5
-        pc_norm = torch.norm(pc)
-
         # if self.surface_type == "semisphere":
         #     self.parametrize = self.parametrize_square
+        if not isinstance(c, tuple):
+            pc      = (c - p) + 1e-5
+            pc_norm = torch.norm(pc)
+
+            pc      = pc / pc_norm
+            self.pc = pc
+            orient  = torch.tensor([1, 1, (-pc[0] - pc[1]) / pc[2]])
+            # orient  = torch.tensor([-1, 1, (pc[0] - pc[1]) / pc[2]])
+            self.orient  = orient / torch.norm(orient)
+
+            # Normalize pc to get the direction
+            self.pc_normalized = pc / pc_norm
+
+            # Find a vector perpendicular to pc
+            self.v_perpendicular = torch.cross(self.pc_normalized, self.orient)
+
+            # Normalize v_perpendicular
+            self.v_perpendicular_normalized = self.v_perpendicular / torch.norm(self.v_perpendicular)
+        else:
+            optional_directions  = c
+            orient               = torch.tensor(optional_directions[0])
+            self.orient          = orient / torch.norm(orient)
+            self.v_perpendicular = torch.tensor(optional_directions[1])
+            self.v_perpendicular_normalized = self.v_perpendicular / torch.norm(self.v_perpendicular)
         
-        pc      = pc / pc_norm
-        self.pc = pc
-        orient  = torch.tensor([1, 1, (-pc[0] - pc[1]) / pc[2]])
-        # orient  = torch.tensor([-1, 1, (pc[0] - pc[1]) / pc[2]])
-        self.orient  = orient / torch.norm(orient)
-
-        # Normalize pc to get the direction
-        self.pc_normalized = pc / pc_norm
-
-        # Find a vector perpendicular to pc
-        self.v_perpendicular = torch.cross(self.pc_normalized, self.orient)
-
-        # Normalize v_perpendicular
-        self.v_perpendicular_normalized = self.v_perpendicular / torch.norm(self.v_perpendicular)
-
+        #print(self.orient.round(), self.v_perpendicular_normalized.round())
 
         if self.surface_type == "square":
             self.parametrize = self.parametrize_square
