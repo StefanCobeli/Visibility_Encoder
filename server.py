@@ -19,6 +19,7 @@ def query_plane_locations_page():
     http://127.0.0.1:5000/query_locations_plane
     or in command line 
     curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/query_plane.json "http://127.0.0.1:5000/query_plane_locations"
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/query_plane_directions.json "http://127.0.0.1:5000/query_plane_locations"
     '''
     seed = np.random.randint(10**6)
     si   = np.ones(4) * .5 # search intervals
@@ -57,7 +58,7 @@ def query_plane_locations_page():
     
     al_df    = query_locations_on_surface(desired_distribution, surface_basis, surface_type\
        , num_locations=num_locations, search_intervals=si, lt=lt, lrate=lr, max_steps = ms, seed=seed)
-    
+    # print(al_df.x.max(axis=0), al_df.x.min(axis=0), al_df.z.max(axis=0), al_df.z.min(axis=0))
     # al_df.to_csv("./utils/assets/query_locations/queried_locations_plane.csv", index=False)
     al_df.to_json("./utils/assets/query_locations/queried_locations_plane.csv", orient="records", indent=4)
 

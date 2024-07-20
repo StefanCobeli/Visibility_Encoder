@@ -238,9 +238,9 @@ class ParametricSurface:
             self.v_perpendicular_normalized = self.v_perpendicular / torch.norm(self.v_perpendicular)
         else:
             optional_directions  = c
-            orient               = torch.tensor(optional_directions[0])
+            orient               = torch.tensor(optional_directions[1])
             self.orient          = orient / torch.norm(orient)
-            self.v_perpendicular = torch.tensor(optional_directions[1])
+            self.v_perpendicular = torch.tensor(optional_directions[0])
             self.v_perpendicular_normalized = self.v_perpendicular / torch.norm(self.v_perpendicular)
         
         #print(self.orient.round(), self.v_perpendicular_normalized.round())
