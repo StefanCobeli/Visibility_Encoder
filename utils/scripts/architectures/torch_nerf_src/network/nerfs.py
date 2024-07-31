@@ -218,7 +218,7 @@ class ParametricSurface:
         self.surface_type = surface_type
         # if self.surface_type == "semisphere":
         #     self.parametrize = self.parametrize_square
-        if not isinstance(c, tuple):
+        if not isinstance(c, tuple): #plane defined by point on plane and point outside plane
             pc      = (c - p) + 1e-5
             pc_norm = torch.norm(pc)
 
@@ -236,13 +236,14 @@ class ParametricSurface:
 
             # Normalize v_perpendicular
             self.v_perpendicular_normalized = self.v_perpendicular / torch.norm(self.v_perpendicular)
-        else:
+        else: #plane defined by center and two direction vectors.
             optional_directions  = c
             orient               = torch.tensor(optional_directions[1])
             self.orient          = orient / torch.norm(orient)
             self.v_perpendicular = torch.tensor(optional_directions[0])
             self.v_perpendicular_normalized = self.v_perpendicular / torch.norm(self.v_perpendicular)
-        
+            l, L = self.r
+            self.p = self.p - 0.5 * l * self.v_perpendicular_normalized - 0.5 * L * self.orient# Translate center to the one corner of the plane
         #print(self.orient.round(), self.v_perpendicular_normalized.round())
 
         if self.surface_type == "square":
