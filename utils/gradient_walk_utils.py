@@ -57,7 +57,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     al_df["start_locs"] = [d["trajectory"][0] for d in debug_dicts]
     al_df["start_views"] = [d["trajectory_view_dir"][0] for d in debug_dicts]
     
-    return al_df
+    return al_df.sort_values("residual")
 
 
 def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis, surface_type, intervals=np.ones(4) * .1, n_steps=10, loss_threshold=0.1, lrate=5*1e-2, debugging_return=True, verbose=True):
@@ -223,7 +223,7 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
     al_df["steps"]     = num_ps
     al_df["start_locs"] = [l[0][:3] for l in locations] #only xyz locations without angles
     
-    return al_df
+    return al_df.sort_values("residual")
 
 
 def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_threshold=0, debugging_return=False, optimizer=None, verbose=False):
