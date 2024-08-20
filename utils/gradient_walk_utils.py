@@ -36,7 +36,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
 
     for i in tqdm(range(n_trials)):
         
-        view_dir           = torch.tensor(locs_array[np.random.randint(locs_array.shape[0])][3:], requires_grad=True) # change view_dir to random picking
+        view_dir           = torch.tensor(locs_array[np.random.randint(locs_array.shape[0])][3:], requires_grad=False)#, requires_grad=True) # change view_dir to random picking
         a, b               = torch.rand(2) 
         parameters         = (a, b)
         
@@ -55,6 +55,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     al_df["residual"]   = [d["final_residual"] for d in debug_dicts]
     al_df["steps"]      = [len(d["trajectory"]) for d in debug_dicts]
     al_df["start_locs"] = [d["trajectory"][0] for d in debug_dicts]
+    al_df["start_views"] = [d["trajectory_view_dir"][0] for d in debug_dicts]
     
     return al_df
 
@@ -89,7 +90,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     # lrate      = 5*1e-2
     optimizer  = torch.optim.Adam(params=[input_a, input_b, view_dir], lr=lrate)
     
-    gradients_norm  = []; predictions = []; trajectory = []; loss_trajectory = []; inputs = []; #trajectory_view_dir = []#maybe trajectory view if needed
+    gradients_norm  = []; predictions = []; trajectory = []; loss_trajectory = []; inputs = []; trajectory_view_dir = []#maybe trajectory view if needed
     if verbose:
         parsing_bar     = tqdm(range(n_steps))
     else:
@@ -105,6 +106,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         perc_pred         = (prediction[0] + 1) / 2
         predictions.append(perc_pred)
         trajectory.append((raw_pos.detach().numpy()))
+        trajectory_view_dir.append(raw_view.detach().numpy())
 
         #Adaptive labels to interval:
         if intervals is not None:
@@ -126,7 +128,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         ##### d. Log found gradients and predictions as percentages
         loss_trajectory.append(loss.detach().numpy())
 
-        pos_grad_norm     = (np.linalg.norm(a_grad), np.linalg.norm(b_grad), np.linalg.norm(dir_grad))
+        pos_grad_norm     = (np.linalg.norm(a_grad), np.linalg.norm(b_grad))#, np.linalg.norm(dir_grad))
         gradients_norm.append(pos_grad_norm)
         
         if verbose:
@@ -146,7 +148,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     
     raw_pos = trajectory[-1]
     if debugging_return:
-        debugging_dict = {"final_residual":final_residual, "trajectory":trajectory, "last_view_dir":raw_view.detach().numpy(), "predictions":predictions, "gradients_norm":gradients_norm, "loss_trajectory":loss_trajectory, "inputs":inputs}
+        debugging_dict = {"final_residual":final_residual, "trajectory":trajectory, "last_view_dir":raw_view.detach().numpy(), "predictions":predictions, "gradients_norm":gradients_norm, "loss_trajectory":loss_trajectory, "inputs":inputs, "trajectory_view_dir":trajectory_view_dir}
         return raw_pos, debugging_dict
     else:
         return raw_pos, perc_pred

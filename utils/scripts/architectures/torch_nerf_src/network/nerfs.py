@@ -39,7 +39,7 @@ class EncoderNeRFSDataset(Dataset):
         # https://discuss.pytorch.org/t/newbie-getting-the-gradient-with-respect-to-the-input/12709/2        
         self.a.retain_grad()
         self.b.retain_grad()
-        self.view_dir.retain_grad()
+        #self.view_dir.retain_grad()
         #self.targets.retain_grad()
     
     def __getitem__(self,index):
