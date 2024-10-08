@@ -18,18 +18,32 @@ def query_plane_locations_page():
     '''
     http://127.0.0.1:5000/query_locations_plane
     or in command line 
+    Semantics query on ["building", "water", "road", "sidewalk", "surface", "tree", "sky"]
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/query_full_semantics.json "http://127.0.0.1:5000/query_plane_locations"
+
+    Perception query on ["greeness", "openness", "imageability", "enclosure", "walkability", "serenity"]
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/query_perception.json "http://127.0.0.1:5000/query_plane_locations"
+
+    Original examples    
     curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/query_plane.json "http://127.0.0.1:5000/query_plane_locations"
     curl -X POST -H "Content-Type: application/json" --data @./utils/assets/query_locations/query_plane_directions.json "http://127.0.0.1:5000/query_plane_locations"
     '''
     seed = np.random.randint(10**6)
-    si   = np.ones(4) * .5 # search intervals
-    lt   =.01      # loss threshould under which the optimization is stopped.
+    # print("Random seed:", seed)
+    # seed = 1 # the random seed either is the same always or is never set
+    # si   = np.ones(4) * .005 # search intervals
+    lt   =.0001      # loss threshould under which the optimization is stopped.
     lr   = 5*1e-3 #learning rate for optimization on the plane
+    # lr   = 5*1e-1 #learning rate for optimization on the plane
     ms   = 50     # maximum optimization steps
     
     try:
         data                 = request.json
         query_df             = pd.DataFrame(data)
+
+        print(query_df["f_xyz"].values[0], type(query_df["f_xyz"].values[0]), type(query_df["f_xyz"].values[0]) is dict)
+        #return query_df.to_json(orient="records", indent=4)
+        # return query_df.to_json(orient="records", indent=4)
         
         p = torch.tensor([float(x) for x in query_df["point_on_plane"].values[0]]).to(torch.float32)
         if "point_plus_normal" in query_df:
@@ -43,11 +57,15 @@ def query_plane_locations_page():
             #print(c)
         r = torch.tensor([float(x) for x in query_df["r"].values[0]])
         
-        desired_distribution = torch.tensor([float(x) for x in query_df["f_xyz"].values[0]]).to(torch.float32)
+        if type(query_df["f_xyz"].values[0]) is dict or type(query_df["f_xyz"].values[0]) is list:
+            desired_distribution = query_df["f_xyz"].values[0] # moved decision of parsing query_df["f_xyz"] to query_locations_on_surface
+       
+        si   = np.ones(len(query_df["f_xyz"])) * .05 #.5 # search intervals
+
         surface_basis        = (p, c, r); surface_type = "square"
         num_locations        = int(query_df["num_locations"].values[0])
-        if "seed" in query_df:
-            seed = int(query_df["seed"])
+        # if "seed" in query_df:
+        #     seed = int(query_df["seed"])
     except Exception as e:
         print(e)
         print(f"Invalid JSON sent in the request - two examples of query locations on a plane are is in:")
@@ -83,8 +101,8 @@ def query_locations_page():
         query_df             = pd.DataFrame(data)
         desired_distribution = [float(x) for x in query_df["f_xyz"].values[0]]
         num_locations        = int(query_df["num_locations"].values[0])
-        if "seed" in query_df:
-            seed = int(query_df["seed"])
+        #if "seed" in query_df:
+        #    seed = int(query_df["seed"])
     except Exception as e:
         print(e)
         print(f"Invalid JSON sent in the request - an example of query locations file is in:")

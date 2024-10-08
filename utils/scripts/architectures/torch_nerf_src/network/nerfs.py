@@ -78,11 +78,11 @@ class NeRFS(nn.Module):
 
     def __init__(
         self,
-        p,
-        c,
-        r,
-        norm_params: tuple,
-        pos_dim: int,
+        p: torch.Tensor=torch.empty(0),
+        c: torch.Tensor=torch.empty(0),
+        r: torch.Tensor=torch.empty(0),
+        norm_params: tuple = ((0,0,0), (0,0,0)),
+        pos_dim: int = 10,
         output_dim: int = 3,
         view_dir_dim: int = 3,
         feat_dim: int = 256,
@@ -135,7 +135,10 @@ class NeRFS(nn.Module):
         self.c = c
         self.r = r
         #self.surface_parametric = surface_parametric
-        self.surface = ParametricSurface(self.p,self.c,self.r,self.surface_type)
+        try:
+            self.surface = ParametricSurface(self.p,self.c,self.r,self.surface_type)
+        except:
+            print("Surface not initialized properly. Can only predict from raw position and direction.")
         
     def forward(
         self,
@@ -200,6 +203,67 @@ class NeRFS(nn.Module):
         x = self.relu_actvn(self.fc_9(x))
         rgb = self.sigmoid_actvn(self.fc_out(x))
 
+        #return rgb
+        return raw_pos, raw_view, rgb
+        #return sigma, rgb
+
+    def predict_from_raw(
+        self,
+        position: torch.Tensor,
+        view_dir: torch.Tensor,
+        return_latent_features: bool = False
+    ) -> torch.Tensor:
+        """
+            Same as forward but without paramterization.
+            return_latent_features - returns also latent embedding x aside of rgb - same as get_latent_feature from NeRF
+        """
+        
+        raw_pos = position
+        raw_view = view_dir
+        #print(pos.dtype)
+        
+        #1. Normalize position and direction
+        
+        norm_pos = (raw_pos - self.norm_params[0]) / self.norm_params[1]
+        pos      = norm_pos.unsqueeze(0)
+        view_dir = (view_dir - self.norm_params[2]) / self.norm_params[3]
+        view_dir = view_dir.unsqueeze(0)
+        
+        #print("Normalized inputs:", pos, view_dir)
+        input_matrix = torch.vstack([pos[:, 0], pos[:, 1], pos[:, 2]\
+                         , view_dir[:, 0], view_dir[:, 1], view_dir[:, 2]]).T
+        
+        encoded_input = self.positional_encoder.encode((input_matrix))
+
+        pos          = encoded_input[:,:encoded_input.shape[1]//2]
+        view_dir     = encoded_input[:,encoded_input.shape[1]//2:]    
+        #print(pos.dtype)
+        #print("Encoded inputs:", pos, view_dir)
+
+
+        x = self.relu_actvn(self.fc_in(pos))
+        x = self.relu_actvn(self.fc_1(x))
+        x = self.relu_actvn(self.fc_2(x))
+        x = self.relu_actvn(self.fc_3(x))
+        x = self.relu_actvn(self.fc_4(x))
+
+        x = torch.cat([pos, x], dim=-1)
+
+        x = self.relu_actvn(self.fc_5(x))
+        x = self.relu_actvn(self.fc_6(x))
+        x = self.relu_actvn(self.fc_7(x))
+        x = self.fc_8(x)
+
+        #sigma = self.relu_actvn(x[:, 0])
+        x = torch.cat([x[:, 1:], view_dir], dim=-1)
+
+        x = self.relu_actvn(self.fc_9(x))
+        latent_features = x
+        rgb = self.sigmoid_actvn(self.fc_out(x))
+
+        
+        if return_latent_features:
+            return (raw_pos, raw_view), latent_features, rgb
         #return rgb
         return raw_pos, raw_view, rgb
         #return sigma, rgb

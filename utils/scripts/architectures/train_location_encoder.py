@@ -16,6 +16,7 @@ def run_one_epoch_location_encoder(encoder_net, criterion, optimizer, data_loade
     '''
     #sum of losses for each sample to be normalized by len(dataset)
     current_losses = np.zeros(encoder_net.fc_out.out_features)
+    #print(current_losses.shape)
     predictions    = []
     all_losses     = [] if gt_labels else [current_losses]
     #print(len(data_loader.dataset))
@@ -58,8 +59,10 @@ def get_location_visibility_encoder(enc_input_size, num_present_classes, feat_di
     lr_start            = 1e-5 
     
     #Model and loss declaration
-    
     encoder_net = network.nerf.NeRF(pos_dim=enc_input_size, output_dim=num_present_classes, view_dir_dim=enc_input_size, feat_dim=feat_dim) 
+    #! NeRFS is only used for testing not for training: The surface projection does not need to be trained.
+    # encoder_net = network.nerfs.NeRFS(pos_dim=enc_input_size, output_dim=num_present_classes, view_dir_dim=enc_input_size, feat_dim=feat_dim) 
+    
     criterion   = torch.nn.MSELoss(reduction='none')
     optimizer   = torch.optim.Adam(encoder_net.parameters(), lr=lr_start, eps=1e-8)#,weight_decay=
     scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
@@ -127,7 +130,7 @@ def normalize_visibility_labels(vis_df, train_mean_dev=None):
     
     return vis_df, label_mean, label_dev
 
-def process_locations_visibility_data_frame(file_store, norm_params=None, min_percentage_per_class=.1, label_split=",", missing_labels=False, selected_label_indexes=[0,1,5,6]):
+def process_locations_visibility_data_frame(file_store, norm_params=None, min_percentage_per_class=None, label_split=",", missing_labels=False, selected_label_indexes=[0,1,5,6]):
     '''
     Process locations.csv file from file_store. 
     Table expected columns:
@@ -141,10 +144,18 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     return vis_df_n, norm_params, non_empty_classes
     '''
     # print("Processing")
-    
-    vis_df                                  = pd.read_csv(file_store)
+    if ".json" in file_store:
+        vis_df = pd.read_json(file_store)
+        if label_split is not None:
+            label_name  = label_split
+            label_split = "json"
+    else:
+        vis_df                                  = pd.read_csv(file_store)
     # vis_df[['x','y',"z", 'xh', 'yh', 'zh']] = vis_df[['x','y',"z", 'xh', 'yh', 'zh']].round(3)
     
+    # if "f_xyz_raw" in vis_df:
+    #     vis_df 
+
     if norm_params is None:
         vis_df_n, xyz_mean, xyz_dev   = normalize_visibility_dataframe(vis_df, ["x", "y", "z"])
         vis_df_n, xyzh_mean, xyzh_dev = normalize_visibility_dataframe(vis_df_n, ["xh", "yh", "zh"])
@@ -157,31 +168,54 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     if missing_labels:
         return vis_df_n, norm_params, None
     
+    max_row_value = None
     if label_split is None:
         vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').replace("\n", "").split(" ") if d.isdigit()])
     if label_split == ",":
         vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').split(",") if d.isdigit()])
+    if label_split == "json":
+        # vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"]
+        vis_df_n["f_xyz"] = vis_df_n[label_name]
+        max_row_value     = vis_df_n[label_name].max()
 
-    #Normalize Labels by the sum of each row. Predictions will be adding up to 1
-    max_row_value                      = sum(vis_df["f_xyz_raw"].iloc[0])
+    if max_row_value is None:
+        #Normalize Labels by the sum of each row. Predictions will be adding up to 1
+        max_row_value                      = sum(vis_df["f_xyz_raw"].iloc[0])
+    print(f"Normalizing each label value by: {max_row_value:,}")
 
     # Filter labels either by index or by occurence
     if selected_label_indexes is None:
         #a. Filter down to only labels that appear:
-        minimum_occurances                 = min_percentage_per_class * max_row_value * vis_df_n.shape[0]
-        indvidual_class_occurences         = np.sum(np.vstack((vis_df_n["f_xyz_raw"].values)), axis=0)
-        non_empty_classes                  = indvidual_class_occurences > minimum_occurances
-        # print(selected_label_indexes, non_empty_classes)
+        if min_percentage_per_class is None: #all indexes are considered selected indexes
+            selected_label_indexes = np.arange(len(vis_df_n["f_xyz"].iloc[0]))
+            non_empty_classes      = np.ones_like(selected_label_indexes).astype(bool)
+            print("Selected label indexes:", selected_label_indexes, non_empty_classes)
+        else:
+            minimum_occurances                 = min_percentage_per_class * max_row_value * vis_df_n.shape[0]
+            indvidual_class_occurences         = np.sum(np.vstack((vis_df_n["f_xyz_raw"].values)), axis=0)
+            non_empty_classes                  = indvidual_class_occurences > minimum_occurances
+            print("Selected label indexes:", selected_label_indexes, non_empty_classes)
     else:
         #b. Filter by selected indexes.
+        # print(selected_label_indexes)
+        # print(np.arange(len(vis_df_n["f_xyz_raw"].iloc[0])))
+        # print(np.in1d(np.arange(len(vis_df_n["f_xyz_raw"].iloc[0])), selected_label_indexes))
         non_empty_classes = np.in1d(np.arange(len(vis_df_n["f_xyz_raw"].iloc[0])), selected_label_indexes)
         # print(non_empty_classes)
-
     #Keep only labels satisfying condition (occurences or selection)
     vis_df_n["f_xyz"]     = vis_df["f_xyz_raw"].apply(lambda d: \
                                              [p for (p, e) in zip(d, non_empty_classes) if e])
     #Normalize appearances and strech them between -1, +1:
     vis_df_n["f_xyz"]     = vis_df["f_xyz"].apply(lambda d: [(2 * x) / max_row_value - 1 for x in d]) 
+    
+    # print(np.vstack(vis_df_n['f_xyz'].values).max(axis=1).shape, np.vstack(vis_df_n['f_xyz'].values).shape)
+    print(f"\nNormalized f_xyz between -1 ({np.vstack(vis_df_n['f_xyz'].values).min(axis=0)}) "\
+    f"and 1 ({np.vstack(vis_df_n['f_xyz'].values).max(axis=0)}), considering the maximum label row value of {max_row_value}")
+    #If there are additional labels not to be normalized they can be added here.
+    #labels to be steored in "f_xyz_2" or "f_xyz_3" and so on. new labels presumed to be normalized already.
+    if "f_xyz_2" in vis_df.columns:
+        vis_df_n["f_xyz"] = np.hstack([np.vstack(vis_df_n["f_xyz"].values), np.vstack(vis_df["f_xyz_2"].values)]).tolist()#[:2]#vis_depth_df.apply(lambda d: np.hstack([d["f_xyz"], d["f_xyz_2"]]), axis=1)
+    
 
     return vis_df_n, norm_params, non_empty_classes
 
@@ -229,10 +263,11 @@ def get_location_visibility_loaders(processed_vis_loc_df, train_set_percentage=1
     # return train_loader, test_loader, train_df, test_df if return_dfs else train_loader, test_loader
 
 
-def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_test=False, selected_label_indexes=None, file_name="locations", return_info=False):
+def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_test=False, selected_label_indexes=None, file_name="locations", return_info=False, model_name=None, label_name=None):
     '''
     mpc: min_percentage_per_class - 0-1 how often a class should appear in the set to be considered - default .05.
     tsp: training set percentage  - out of the 80% of the data on how many samples should the model be trained - default 1.
+    selected_label_indexes - [0, 1, ...] to ignore mpc
 
     returns: encoder_net, trlh, tlh, visibility_dataset_df training_info_df (training_info_df only if return_info)
     '''
@@ -243,17 +278,35 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
 
     NY_MESH = True
     # NY_MESH = False
-    file_store = data_path + f"/{file_name}.csv"
+    if ".json" in data_path:
+        file_store       = data_path #+ f"/{file_name}"
+        data_path = "/".join(data_path.split("/")[:-1])
+        class_index_file = data_path + "/classes_index.csv"
+        models_path      = data_path + "/models"
+    else:
+        file_store      = data_path + f"/{file_name}.csv"
+        class_index_file = f"{data_path}/classes_index.csv"
+        models_path      = data_path + "/models"
+
     if separate_test:
         file_store_train = data_path + "/locations_train.csv"
         file_store_test  = data_path + "/locations_test.csv"
     
     if NY_MESH:
 
-        ins_dict = {c["color"] : c["class"] for c in  \
-                pd.read_csv(f"{data_path}/classes_index.csv"\
-                            , index_col=False).to_dict(orient="records")
-                   }
+        try:
+            ins_dict = {c["color"] : c["class"] for c in  \
+                    pd.read_csv(class_index_file\
+                                , index_col=False).to_dict(orient="records")
+                    }
+        except:
+            storage_folder = "/".join(data_path.split("/")[:-1])
+            ins_dict = {c["color"] : c["class"] for c in  \
+                    pd.read_csv(storage_folder + "/classes_index.csv"\
+                                , index_col=False).to_dict(orient="records")
+                    }    
+            models_path      = storage_folder + "/models"
+            file_store       = data_path 
         label_split=","
         classes_names = list(ins_dict.values())
     else:
@@ -261,6 +314,9 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
         label_split=None
         file_store = "./data/cambridge_block_8_fragment_semantic_locs-2500_dirs-5_visual/locations.csv"
         classes_names = list(ins_dict.values())+["empty"]
+
+    if label_name is not None: #If there is a label name other than f_xyz.
+        label_split = label_name 
 
 
     #1. Read locations.csv and process data frame with normalized coordinate inputs and labels
@@ -275,11 +331,16 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
     #c. Change point 2. - train and test Loaders should be returned indiviudally.
 
     non_empty_classes_names                  = np.array(classes_names)[nec]
-    print(f"Found {nec.sum()} classes appearing more than {mpc*100:.1f}%: {non_empty_classes_names}")
+    if mpc is not None:
+        print(f"Found {nec.sum()} classes appearing more than {mpc*100:.1f}%: {non_empty_classes_names}")
+    else:
+        print(f"Train model based on selected label indexes: {non_empty_classes_names}")
 
 
     trlh = []
     tlh  = []
+    tralh = []# all losses training history
+    talh = [] # all losses testing history
 
     #2. setup `torch` dataset and loaders
     pos_enc_dim = 10
@@ -288,6 +349,8 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
 
     #3. Setup NeRF-like location encoder:
     enc_input_size, num_present_classes          = train_loader.dataset.input_dir.shape[1], train_loader.dataset.output.shape[1]
+
+    #print("Num present classes", num_present_classes)
     encoder_net, criterion, optimizer, scheduler =  get_location_visibility_encoder(enc_input_size, num_present_classes)
 
     #4. Training loop
@@ -296,33 +359,40 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
     logging_steps       = 2#5
     tr_losses_history   = []
     test_losses_history = []
+    all_test_losses = []
+    all_tr_losses   = []
     for epoch in training_progress:
 
         tr_loss = run_one_epoch_location_encoder(encoder_net, criterion, optimizer\
-                                       , train_loader, training_epoch=True)
-        tr_losses_history.append(tr_loss)    
+                                       , train_loader, training_epoch=True, return_predictions=True)
+        all_tr_losses.append(tr_loss[1])   
+        tr_losses_history.append(tr_loss[0])  
 
         if epoch % logging_steps == 0:
 
             test_loss = run_one_epoch_location_encoder(encoder_net, criterion, optimizer\
-                                       , test_loader, training_epoch=False)
-            test_losses_history.append(test_loss)
+                                       , test_loader, training_epoch=False, return_predictions=True)
+            all_test_losses.append(test_loss[1])   
+            test_losses_history.append(test_loss[0])  
 
         training_progress.set_description(f'Epoch {epoch +1} / {num_epochs}'+
-              f'- Training loss {tr_loss.mean()**.5:.5f} - test loss {test_loss.mean()**.5:.5f}'  )
+              f'- Training loss {tr_loss[0].mean()**.5:.5f} - test loss {test_loss[0].mean()**.5:.5f}'  )
 
     trlh.append(tr_losses_history)
     tlh.append(test_losses_history)
+    tralh.append(all_tr_losses)
+    talh.append(all_test_losses)
+
     et = time.time()
 
     #save trained model:
     #0. create storage folder 
-    models_path = data_path + "/models"
     if not os.path.exists(models_path):
         os.makedirs(models_path)
         print(f"Created data storage at:\n\t{models_path}")
-
-    model_name = f"encoder_{num_epochs}.pt"
+    if model_name is None:
+        model_name = f"encoder_{num_epochs}.pt"
+        
     trlh, tlh = np.vstack(trlh), np.vstack(tlh)
 
     import sys
@@ -335,6 +405,7 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
                   , "num_epochs":num_epochs\
                   , "pos_enc_dim" : pos_enc_dim
                   , "tsp":tsp\
+                  , "label_name": "f_xyz" if label_name is None else label_name\
                   , "enc_input_size":enc_input_size\
                   , "num_present_classes":num_present_classes\
                   , "xyz_centroid" :[norm_params[0]]\
@@ -345,14 +416,17 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
                 #   , "labels_max-min" :[norm_params[5]]\
                   , "criterion":str(criterion)\
                   , "training_time_in_seconds": f"{int(et-st):,}"\
-                  , "final_training_loss":tr_loss.mean()\
-                  , "final_test_loss":test_loss.mean()\
+                  , "final_training_loss":tr_loss[0].mean()\
+                  , "final_test_loss":test_loss[0].mean()\
                   , "training_losses_summary":[trlh[::max([1, num_epochs//10])]]\
                   , "test_losses_summary":[tlh[::max([1, num_epochs//20])]]\
                   , "training_losses_history":[trlh]\
-                  , "test_losses_history":[tlh]}).T
+                  , "test_losses_history":[tlh]\
+                #   , "all_training_losses_history" :tralh\
+                #   , "all_test_losses_history" :talh\
+                }).T
     training_info_df.to_csv(f"{models_path}/training_info_{num_epochs}.csv")
-    
+    training_info_df.to_json(f"{models_path}/training_info_{num_epochs}.json", indent=4)
 
     # Save
     #torch.save(encoder_net.state_dict(), f"{models_path}/{model_name}")
@@ -378,8 +452,8 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = .05, separate_te
 
 ############################
 # Potential change in label scaling:
-
-def process_locations_visibility_data_frame_with_labels(file_store, norm_params=None, min_percentage_per_class=.1, label_split=",", missing_labels=False, selected_label_indexes=None):
+######!!!!!!!!!!!!!!!!NEVER USED
+def process_locations_visibility_data_frame_with_labels(file_store, norm_params=None, min_percentage_per_class=None, label_split=",", missing_labels=False, selected_label_indexes=None):
     '''
     Process locations.csv file from file_store. 
     Table expected columns:
@@ -392,7 +466,12 @@ def process_locations_visibility_data_frame_with_labels(file_store, norm_params=
     non_empty_classes        - array with true, false entries based on which f_xyz was kept.
     '''
     
-    vis_df                        = pd.read_csv(file_store)
+    
+    if ".json" in file_store:
+        vis_df = pd.read_json(file_store)
+        label_split = "json"
+    else:
+        vis_df                        = pd.read_csv(file_store)
     
     if norm_params is None:
         vis_df_n, xyz_mean, xyz_dev   = normalize_visibility_dataframe(vis_df, ["x", "y", "z"])
@@ -410,16 +489,22 @@ def process_locations_visibility_data_frame_with_labels(file_store, norm_params=
         vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').replace("\n", "").split(" ") if d.isdigit()])
     if label_split == ",":
         vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').split(",") if d.isdigit()])
-
+    if label_split == "json":
+        vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"]
+        
     #Normalize Labels by the sum of each row. Predictions will be adding up to 1
     max_row_value                      = sum(vis_df["f_xyz_raw"].iloc[0])
 
     # Filter labels either by index or by occurence
     if selected_label_indexes is None:
         #a. Filter down to only labels that appear:
-        minimum_occurances                 = min_percentage_per_class * max_row_value * vis_df_n.shape[0]
-        indvidual_class_occurences         = np.sum(np.vstack((vis_df_n["f_xyz_raw"].values)), axis=0)
-        non_empty_classes                  = indvidual_class_occurences > minimum_occurances
+        if min_percentage_per_class is None: #all indexes are considered selected indexes
+            selected_label_indexes = np.arange(len(vis_df_n["f_xyz_raw"].iloc[0]))
+            non_empty_classes      = np.ones_like(selected_label_indexes).astype(bool)
+        else:
+            minimum_occurances                 = min_percentage_per_class * max_row_value * vis_df_n.shape[0]
+            indvidual_class_occurences         = np.sum(np.vstack((vis_df_n["f_xyz_raw"].values)), axis=0)
+            non_empty_classes                  = indvidual_class_occurences > minimum_occurances
     else:
         #b. Filter by selected indexes.
         non_empty_classes = np.in1d(np.arange(len(vis_df_n["f_xyz_raw"].iloc[0])), selected_label_indexes)

@@ -165,6 +165,7 @@ class NeRF(nn.Module):
             pass
 
         if from_raw:
+            # directly from normalized coordinates and angles. (i.e. 6-dim input rather than 6 * enc_dim) 
             #Same as in encode_position from EncoderNeRFDataset
             
             # print("Raw position:", pos)

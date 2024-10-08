@@ -155,11 +155,26 @@ def np_print_back_to_array(printed_np):
     
     return np_array
     
-def parse_training_info(model_path, model_version):
+def parse_training_info(model_path=None, model_version=None, info_dict_path=None):
     '''
     Parse training details into dictionary.
     '''
-    info_dict                     = pd.read_csv(f"{model_path}/training_info_{model_version}.csv", index_col=0).to_dict()["0"]
+    try:
+        info_dict  = pd.read_json(info_dict_path).to_dict()[0]
+        print(f"Succesfully read json config from {info_dict_path}")
+        #print(info_dict)
+        return info_dict
+    except:
+        try:
+            # print(f"Reading json config {model_version}")
+            info_dict  = pd.read_json(f"{model_path}/training_info_{model_version}.json").to_dict()[0]
+            # print("Succesfully read json config from")
+            # print(f"\t{model_path}/training_info_{model_version}.json")
+            # print(info_dict)
+            return info_dict
+        except:
+            # print("Reading csv config ")
+            info_dict                     = pd.read_csv(f"{model_path}/training_info_{model_version}.csv", index_col=0).to_dict()["0"]
     
     #1. Parse available classes:
     info_dict["non_empty_classes_names"] = eval(info_dict["non_empty_classes_names"])[0][1:].split(" ")

@@ -1,0 +1,19 @@
+[
+    {
+        "f_xyz":{
+            "building": 0.0,
+            "water": 0.3,
+            "road": 0.0,
+            "sidewalk": 0.5,
+            "surface": 0.5,
+            "tree": 0.0,
+            "sky": 0.0
+        },
+        "point_on_plane": [-300, 60, -292],
+        "direction_1": [1, 0, 0],
+        "direction_2": [0, 0, 1],
+        "r": [3500, 2500],
+        "num_locations":2,
+        "seed":25
+    }
+]

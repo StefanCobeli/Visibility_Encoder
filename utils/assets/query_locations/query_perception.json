@@ -1,0 +1,18 @@
+[
+    {
+        "f_xyz":{
+            "greeness" : 0.0
+            , "openness" : 0.0
+            , "imageability" : 0.0
+            , "enclosure" : 0.0
+            , "walkability" : 0.4
+            , "serenity" : 0.9
+        },
+        "point_on_plane": [-300, 60, -292],
+        "direction_1": [1, 0, 0],
+        "direction_2": [0, 0, 1],
+        "r": [3500, 2500],
+        "num_locations":2,
+        "seed":25
+    }
+]

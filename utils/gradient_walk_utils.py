@@ -20,28 +20,151 @@ from utils.scripts.architectures.torch_nerf_src import network
 # from utils.scripts.architectures.train_location_encoder import rescale_from_norm_params 
 
 
+def choose_model_based_on_query(desired_distribution):
+    """
+    Find what model should be used.
+    Return info_dict with model_path entry and 
+    rectified query as list of length being the output of the model.
+    
+    rectified_query: -1 where nothing specified and value where specified.
+
+    return info_dict, rectified_query
+    """
+    query_labels = None
+    #Scenarios:
+    #Semantics
+    #1.  ['building', ' water', 'tree', 'sky']
+    semantics_pricipal   = ['building', 'water', 'tree', 'sky'] 
+    labels, label_ids, query_ids = np.intersect1d(semantics_pricipal, list(desired_distribution.keys()), return_indices=True)
+    if len(labels) > 0: #semantics_pricipal case
+        info_dict_path = "./utils/assets/data/splits_physical/models/training_info_100.json"
+        rectified_distribution = np.zeros_like(semantics_pricipal, dtype=float) - 1
+        rectified_distribution[label_ids] = [desired_distribution[semantics_pricipal[qi]] for qi in label_ids]
+
+        print(labels, label_ids, query_ids)
+        print(f"Querying for principal semantics:")
+        query_labels = semantics_pricipal
+
+    #2.  [' building' ' water' ' road ' ' sidewalk' ' surface' ' tree' ' sky']
+    semantics_adders     = ['road', 'sidewalk', 'surface']
+    semantics_full       = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky']
+    labels, label_ids, query_ids = np.intersect1d(semantics_adders, list(desired_distribution.keys()), return_indices=True)
+    if len(labels) > 0: #semantics_full case
+        labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
+        info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json"
+        rectified_distribution = np.zeros_like(semantics_full, dtype=float)  - 1
+        rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
+        print("\nFull semantics found:")
+        print(f"Querying for full semantics: \n\t{semantics_full}")
+        query_labels = semantics_full
+
+    #Perception:
+    #3. ["greeness", "openness", "imageability", "encolusre", "walkability", "serenity"]
+    perceptions          = ["greeness", "openness", "imageability", "enclosure", "walkability", "serenity"]
+    labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)
+    if len(labels) > 0: #perception case
+        info_dict_path = "./utils/assets/data/perception_metrics/models/training_info_350.json"
+        rectified_distribution = np.zeros_like(perceptions, dtype=float) - 1
+        rectified_distribution[label_ids] = [desired_distribution[perceptions[qi]] for qi in label_ids]
+        print(f"Querying for perception semantics: \n\t{perceptions}")
+        query_labels = perceptions
+    
+    print(f"The query was:\n\t{desired_distribution}")
+    print(f"Looking for the rectified query:")
+    print(f"\t{dict(zip(query_labels, rectified_distribution))}")
+    print("~The rectified query will be further tanh normalized (-1, 1) in the nerfs.EncoderNeRFSDataset constructor.\n")
+
+    #Building Materials:
+    #4. ---
+    #Combinations of any values - semantics, perception and buildings:
+
+
+    # model_folder = "/".join(trained_model_path.split("/")[:-1])
+    # model_name   = trained_model_path.split("/")[-1].replace("training_info", "encoder").replace("json", "pt")
+     # trained_encoder.load_state_dict(info_dict["model_path"])
+
+    #print(info_dict_path)
+    info_dict = parse_training_info(info_dict_path=info_dict_path)
+    info_dict["model_path"] = info_dict_path.replace("training_info", "encoder").replace("json", "pt")
+    return info_dict, rectified_distribution # to be passed to gradient_walk_on_surface -  used for norm params and model path.
+
+def initialize_trained_encoder(encoder_name="semantics"):
+    '''
+        Intialize encoder from hard coded file path and return also the training information in info_dict
+        trained_encoder, info_dict = initialize_trained_encoder()
+        encoder_name - {"semantics", "perception", "buildings", "general"}
+    '''
+    
+    mv = 350   #350 - trained with 4 sematic classes                  #model version
+    # mv = 1000 #1000 - trained with 7 sematic classes and 10 depth estimators
+    mp = "./utils/assets/models/"# path to models folder
+    info_dict       = parse_training_info(mp, mv)
+    trained_encoder = network.nerf.NeRF(pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"]\
+        ,  view_dir_dim=info_dict["enc_input_size"], feat_dim=256)
+    trained_encoder.load_state_dict(torch.load(f"{mp}/encoder_{mv}.pt"))
+    
+    return trained_encoder, info_dict
+
 def query_locations_on_surface(desired_distribution, surface_basis, surface_type, num_locations=10, search_intervals=np.ones(4) * .2, lt=.01, lrate=10, max_steps = 100, seed=1):
     '''Similar in api to query_locations
     Returns the same dataframe al_df for easy server posting'''
     
+    seed=1
     set_seed(seed)
+    print("Random seed:", seed)
+    # np.random.seed(seed)
+
+    
+    # Check if desired_distribution is list or dictionary:
+    #TODO: Extract desired distrubutions from potential dictionary
+    #1. Make a decision of encoder to be used based on the provided keys:
+    # encoder_name, info_dict = choose_model_based_on_query()
+    
+    if type(desired_distribution) is dict: 
+        #Make search intervals based on the length of desired_distribution
+        info_dict, rectified_distribution = choose_model_based_on_query(desired_distribution)
+        interval =  search_intervals[0]
+        search_intervals = np.where(rectified_distribution==-1, 10, np.ones_like(rectified_distribution) * interval)
+
+        desired_distribution = torch.tensor(rectified_distribution).to(torch.float32)
+
+        print(f"Search Intervals:\n\t{search_intervals}")
+
+    if type(desired_distribution) is list:
+        desired_distribution = torch.tensor([float(x) for x in desired_distribution]).to(torch.float32)
+        info_dict = None
+    #print(desired_distribution)
     
     n_trials  = num_locations * 10
     #Needed just for view_dir intialization
+    print("\nProcessing locations_example data for untilted viewing directions. Locations are sampled randomly.")
     vis_df, normp, _   = process_locations_visibility_data_frame("./utils/assets/test_data/locations_example.csv")  
     locs_array         = vis_df.values[:,:6].astype(float)
     
     ach_locs    = []
     debug_dicts = []
 
+    #adjust learning rate to the dimensions of the surface. The learning rate should not be larger than 10e-5 agains plane dim.
+    print("surface dimensions:", surface_basis[2])
+    minimum_surface_dimension = surface_basis[2].abs().min()
+    lrate_surface_ratio      = lrate / minimum_surface_dimension #2500 / (5*1e-3)
+    print("Learning rate, surface dim ratio:", lrate_surface_ratio)
+    lrate_ratio_threshold = 10e-2
+    if lrate_surface_ratio > lrate_ratio_threshold: #if lrate is to big make it smaller.
+        print(f"Default lrate: {lrate}")
+        lrate = minimum_surface_dimension * lrate_ratio_threshold
+        print(f"Adjusted lrate to {lrate}, {lrate / minimum_surface_dimension}")
+
     for i in tqdm(range(n_trials)):
         
         view_dir           = torch.tensor(locs_array[np.random.randint(locs_array.shape[0])][3:], requires_grad=False)#, requires_grad=True) # change view_dir to random picking
-        a, b               = torch.rand(2) 
+        a, b               = torch.tensor(np.random.random()), torch.tensor(np.random.random()) #torch.rand(2) 
         parameters         = (a, b)
+        # print(a, b)
         
         raw_pos, debugging_dict = gradient_walk_on_surface(parameters, view_dir, desired_distribution, surface_basis, surface_type\
-                 , intervals=search_intervals, n_steps=max_steps, loss_threshold=lt, lrate=lrate, debugging_return=True, verbose=False)
+                 , intervals=search_intervals, n_steps=max_steps, loss_threshold=lt, lrate=lrate, debugging_return=True, verbose=False\
+                 , info_dict=info_dict)
         
         ach_locs.append(np.hstack([raw_pos, debugging_dict["last_view_dir"]]))
         debug_dicts.append(debugging_dict)
@@ -60,7 +183,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     return al_df.sort_values("residual")
 
 
-def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis, surface_type, intervals=np.ones(4) * .1, n_steps=10, loss_threshold=0.1, lrate=5*1e-2, debugging_return=True, verbose=True):
+def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis, surface_type, intervals=np.ones(4) * .1, n_steps=10, loss_threshold=0.1, lrate=5*1e-2, debugging_return=True, verbose=True, info_dict=None):
     ''' 
     parameters - (init_a, init_b) between 0 and 1
     view_dir - xyzh between -180, 180.
@@ -73,20 +196,29 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     '''
     #Intial parameters
     init_a, init_b = parameters #TODO make intial a and b to be according to designated location / Implement inverse transformation. xyz -> ab
+    # print(init_a, init_b)
     p, c, r        = surface_basis
     #0. Load trained model
     #TODO: pcr to be mixed in a single paramters variable.
-    trained_encoder, info_dict = initialize_trained_encoder()
+    if info_dict is None:
+        _, info_dict = initialize_trained_encoder()
+        info_dict["model_path"] = f"./utils/assets/models/encoder_350.pt"
+
     norm_params                = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
     trained_encoder            = network.nerfs.NeRFS(p, c, r, norm_params, surface_type=surface_type, pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
-    trained_encoder.load_state_dict(torch.load(f"./utils/assets/models/encoder_350.pt"))
+    
+    trained_encoder.load_state_dict(torch.load(info_dict["model_path"]))
+    # trained_encoder.load_state_dict(info_dict["model_path"])
+    # trained_encoder.load_state_dict(torch.load(f"./utils/assets/models/encoder_1000.pt"))
     criterion                  = torch.nn.MSELoss(reduction='none')
     
     #0. Load data to torch dataset
     #TODO: remove pcr from dataset condructor and surface_type
+    # print("desired_target:", desired_target)
     param_ds     = network.nerfs.EncoderNeRFSDataset(init_a, init_b, p, c, r, view_dir, desired_target, "square", norm_params)
     sample_batch = param_ds[0]
     input_a, input_b, input_dir = sample_batch["a"], sample_batch["b"], sample_batch["view_dir"]
+    # print(init_a, init_b)
     # lrate      = 5*1e-2
     optimizer  = torch.optim.Adam(params=[input_a, input_b, view_dir], lr=lrate)
     
@@ -96,7 +228,9 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     else:
         parsing_bar = range(n_steps)
     
+    print()
     for i in parsing_bar:
+        # print(f"Optimization step {i}/{n_steps}")
 
         inputs.append((input_a.detach().numpy().tolist(), input_b.detach().numpy().tolist(), input_dir.detach().numpy().tolist()))
         ##### a. Predict output distribution
@@ -108,10 +242,20 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         trajectory.append((raw_pos.detach().numpy()))
         trajectory_view_dir.append(raw_view.detach().numpy())
 
+
+        # print("Intervals:", intervals)
         #Adaptive labels to interval:
-        if intervals is not None:
+        #TODO: Handle case where prediction has different dimensions compared to the labels. 
+        # Front_end should not only the output values but also their lables, e.g. [0,1,0,0] - [b, w, t, s]. 
+        if intervals is not None: 
+            # print("\nOutput:", output.detach().numpy(), "\tSpecified labels:", labels)
+            # print("\nprediction, labels.numpy(), intervals")
+            # print(prediction, labels.numpy(), intervals)
             interval_target = interval_desired_target_loss(prediction, labels.numpy(), intervals)
+            # print("labels, interval_target, labels - interval_target")
+            # print(labels, interval_target, labels - interval_target)
             labels          = interval_target
+            # print("Output:", output.detach().numpy(), "\tRectified labels:", labels)
 
         ##### b. Compute loss
         loss      = criterion(output, labels)
@@ -123,6 +267,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         a_grad, b_grad, dir_grad = input_a.grad, input_b.grad, input_dir.grad
         optimizer.step()
         if not((0 < input_a.item() < 1) and (0 < input_b.item() < 1)):
+            print(f"Jumped of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
             break
 
         ##### d. Log found gradients and predictions as percentages
@@ -135,6 +280,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
             parsing_bar.set_description(f"Gradient norm: a {pos_grad_norm[0]:.4f}, b {pos_grad_norm[1]:.4f}, dir {pos_grad_norm[2]:.4f}")
 
         if loss.mean() < loss_threshold:
+            print(f"Loss {loss.mean()} passsed the threshold {loss_threshold}. Stoping the optimization.")
             break
     
            
@@ -196,6 +342,7 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
         actual_target = targets_array[crt_id]
 
         ### Gradient Walk: - For each location until finding num_locations.
+        # print("Intervals:", search_intervals)
         achieved_loc, perc_pred, tr, gn, prds, lstr, ps, fr = gradient_walk(actual_loc, desired_target, search_intervals, max_steps, lt, True)
 
         if lstr[-1].mean() < (at * lt): #if last loss is lower than - theshold x acceptaple factor # loss trajectory
@@ -271,6 +418,7 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
         prediction = (output.detach().numpy())
         labels     = sample_batch["output"]
 
+        # print("Intervals:", intervals)
         #Adaptive labels to interval:
         if intervals is not None:
             interval_target = interval_desired_target_loss(prediction, labels.numpy(), intervals)
@@ -331,7 +479,6 @@ def interval_desired_target_loss(prediction, desired_target, intervals):
     '''Compute target if prediction can be within interval of desired_target:
     interval_target = interval_desired_target_loss(prediction, desired_target, intervals)
     '''
-
     pred_in_interval = np.logical_and(prediction < desired_target + intervals, 
                                     prediction > desired_target - intervals)
 
@@ -382,20 +529,7 @@ def get_gradient_from_location_and_output(mock_location, mock_target, return_pre
     if return_predictions:
         return pos_grad, dir_grad, prediction
 
-def initialize_trained_encoder():
-    '''
-        Intialize encoder from hard coded file path and return also the training information in info_dict
-        trained_encoder, info_dict = initialize_trained_encoder()
-    '''
-    
-    mv = 350                     #model version
-    mp = "./utils/assets/models/"# path to models folder
-    info_dict       = parse_training_info(mp, mv)
-    trained_encoder = network.nerf.NeRF(pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"]\
-        ,  view_dir_dim=info_dict["enc_input_size"], feat_dim=256)
-    trained_encoder.load_state_dict(torch.load(f"{mp}/encoder_{mv}.pt"))
-    
-    return trained_encoder, info_dict
+
 
 def intialize_input_as_tensor(mock_location, mock_target, info_dict, on_surface=None):
     '''
@@ -434,7 +568,7 @@ def intialize_input_as_tensor(mock_location, mock_target, info_dict, on_surface=
 
 
 import random
-def set_seed(seed: int = 42) -> None:
+def set_seed(seed: int = 43) -> None:
     """
     Check:
     https://wandb.ai/sauravmaheshkar/RSNA-MICCAI/reports/How-to-Set-Random-Seeds-in-PyTorch-and-Tensorflow--VmlldzoxMDA2MDQy#setting-up-random-seeds-in-pytorch
@@ -446,6 +580,7 @@ def set_seed(seed: int = 42) -> None:
     # When running on the CuDNN backend, two further options must be set
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(mode=True)
     # Set a fixed value for the hash seed
     os.environ["PYTHONHASHSEED"] = str(seed)
     print(f"Random seed set as {seed}")
