@@ -60,7 +60,7 @@ def choose_model_based_on_query(desired_distribution):
 
     #Perception:
     #3. ["greeness", "openness", "imageability", "encolusre", "walkability", "serenity"]
-    perceptions          = ["greeness", "openness", "imageability", "enclosure", "walkability", "serenity"]
+    perceptions          = ["greenness", "openness", "imageability", "enclosure", "walkability", "serenity"]
     labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)
     if len(labels) > 0: #perception case
         info_dict_path = "./utils/assets/data/perception_metrics/models/training_info_350.json"
