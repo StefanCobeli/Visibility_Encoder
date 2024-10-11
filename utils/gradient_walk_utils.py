@@ -174,12 +174,19 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
         
     al_df               = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
     
-    al_df["f_xyz"]      = [d["predictions"][-1] for d in debug_dicts]
+
+    # print(list(info_dict.keys()))
+    # print(info_dict["non_empty_classes_names"])
+    if info_dict is None:
+        al_df["f_xyz"]      = [d["predictions"][-1] for d in debug_dicts] # Originally returned as list of values
+    else:
+        al_df["f_xyz"]      = [dict(zip(info_dict["non_empty_classes_names"], d["predictions"][-1])) for d in debug_dicts] # Return as dictionary of values.
     al_df["residual"]   = [d["final_residual"] for d in debug_dicts]
     al_df["steps"]      = [len(d["trajectory"]) for d in debug_dicts]
     al_df["start_locs"] = [d["trajectory"][0] for d in debug_dicts]
     al_df["start_views"] = [d["trajectory_view_dir"][0] for d in debug_dicts]
     
+
     return al_df.sort_values("residual")
 
 
