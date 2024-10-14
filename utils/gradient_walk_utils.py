@@ -157,7 +157,11 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
 
     for i in tqdm(range(n_trials)):
         
-        view_dir           = torch.tensor(locs_array[np.random.randint(locs_array.shape[0])][3:], requires_grad=False)#, requires_grad=True) # change view_dir to random picking
+        #To optimize viewing directions: requires_grad=True - Freeze view direction  requires_grad=False
+        #Change also  self.view_dir.retain_grad() in EncoderNeRFSDataset
+        #Get a random view direction / angle from the training set.
+        # view_dir           = torch.tensor(locs_array[np.random.randint(locs_array.shape[0])][3:], requires_grad=True)
+        view_dir           = torch.tensor(locs_array[np.random.randint(locs_array.shape[0])][3:], requires_grad=False)
         a, b               = torch.tensor(np.random.random()), torch.tensor(np.random.random()) #torch.rand(2) 
         parameters         = (a, b)
         # print(a, b)
@@ -222,12 +226,12 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     #0. Load data to torch dataset
     #TODO: remove pcr from dataset condructor and surface_type
     # print("desired_target:", desired_target)
-    param_ds     = network.nerfs.EncoderNeRFSDataset(init_a, init_b, p, c, r, view_dir, desired_target, "square", norm_params)
-    sample_batch = param_ds[0]
+    sample_batch     = network.nerfs.EncoderNeRFSDataset(init_a, init_b, p, c, r, view_dir, desired_target, "square", norm_params)[0]
+    
     input_a, input_b, input_dir = sample_batch["a"], sample_batch["b"], sample_batch["view_dir"]
     # print(init_a, init_b)
     # lrate      = 5*1e-2
-    optimizer  = torch.optim.Adam(params=[input_a, input_b, view_dir], lr=lrate)
+    optimizer  = torch.optim.Adam(params=[input_a, input_b, input_dir], lr=lrate)
     
     gradients_norm  = []; predictions = []; trajectory = []; loss_trajectory = []; inputs = []; trajectory_view_dir = []#maybe trajectory view if needed
     if verbose:
@@ -276,7 +280,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         if not((0 < input_a.item() < 1) and (0 < input_b.item() < 1)):
             print(f"Jumped of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
             break
-
+        print(raw_view.detach().numpy())
         ##### d. Log found gradients and predictions as percentages
         loss_trajectory.append(loss.detach().numpy())
 

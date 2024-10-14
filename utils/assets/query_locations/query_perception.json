@@ -3,7 +3,7 @@
         "f_xyz":{
             "greenness" : 0.1
             , "openness" : 0.0
-            , "imageability" : 0.0
+            , "imageability" : 0.3
             , "enclosure" : 0.0
             , "walkability" : 0.4
             , "serenity" : 0.9

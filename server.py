@@ -33,7 +33,7 @@ def query_plane_locations_page():
     # seed = 1 # the random seed either is the same always or is never set
     # si   = np.ones(4) * .005 # search intervals
     lt   =.0001      # loss threshould under which the optimization is stopped.
-    lr   = 5*1e-3 #learning rate for optimization on the plane
+    lr   = 5 * 1e-2 #learning rate for optimization on the plane
     # lr   = 5*1e-1 #learning rate for optimization on the plane
     ms   = 50     # maximum optimization steps
     

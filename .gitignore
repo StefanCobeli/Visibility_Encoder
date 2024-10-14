@@ -4,3 +4,6 @@
 **/lightning_logs/
 Visibility_Analytics.ipynb
 *.ipynb
+
+utils/assets/query_locations/query_perception.json
+utils/assets/query_locations/queried_locations_plane.csv
