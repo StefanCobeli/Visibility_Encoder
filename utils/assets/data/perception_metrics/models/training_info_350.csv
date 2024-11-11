@@ -1,7 +1,7 @@
 ,0
-classes_names,"['greeness', 'openness', 'imageability', 'encolusre', 'walkability', 'serenity']"
+classes_names,"['greenness', 'openness', 'imageability', 'enclosure', 'walkability', 'serenity']"
 mpc,
-non_empty_classes_names,['greeness' 'openness' 'imageability' 'encolusre' 'walkability' 'serenity']
+non_empty_classes_names,['greenness' 'openness' 'imageability' 'enclosure' 'walkability' 'serenity']
 train_size,17145
 test_size,4287
 num_epochs,350

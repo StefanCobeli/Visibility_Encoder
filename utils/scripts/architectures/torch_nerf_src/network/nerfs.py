@@ -145,7 +145,8 @@ class NeRFS(nn.Module):
         a: torch.Tensor,
         b: torch.Tensor,
         view_dir: torch.Tensor,
-        on_surface: torch.Tensor=torch.empty(0)
+        on_surface: torch.Tensor=torch.empty(0),
+        return_latent_features: bool = False
     ) -> torch.Tensor:
         """
         Predicts color and density.
@@ -201,7 +202,11 @@ class NeRFS(nn.Module):
         x = torch.cat([x[:, 1:], view_dir], dim=-1)
 
         x = self.relu_actvn(self.fc_9(x))
+        latent_features = x
         rgb = self.sigmoid_actvn(self.fc_out(x))
+
+        if return_latent_features:
+            return (raw_pos, raw_view), latent_features, rgb
 
         #return rgb
         return raw_pos, raw_view, rgb

@@ -52,6 +52,7 @@ def choose_model_based_on_query(desired_distribution):
     if len(labels) > 0: #semantics_full case
         labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
         info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json"
+        # info_dict_path = "./utils/assets/data/splits_physical/models/training_info_350.json"
         rectified_distribution = np.zeros_like(semantics_full, dtype=float)  - 1
         rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
         print("\nFull semantics found:")
@@ -141,7 +142,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     vis_df, normp, _   = process_locations_visibility_data_frame("./utils/assets/test_data/locations_example.csv")  
     locs_array         = vis_df.values[:,:6].astype(float)
     
-    ach_locs    = []
+    ach_locs    = [] #achieved locations
     debug_dicts = []
 
     #adjust learning rate to the dimensions of the surface. The learning rate should not be larger than 10e-5 agains plane dim.
@@ -179,8 +180,12 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     al_df               = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
     
 
+
+    print("Features available for each location:", list(debug_dicts[-1].keys()))
     # print(list(info_dict.keys()))
     # print(info_dict["non_empty_classes_names"])
+
+    # Assemble JSON to be outputed by server:
     if info_dict is None:
         al_df["f_xyz"]      = [d["predictions"][-1] for d in debug_dicts] # Originally returned as list of values
     else:
@@ -189,13 +194,22 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     al_df["steps"]      = [len(d["trajectory"]) for d in debug_dicts]
     al_df["start_locs"] = [d["trajectory"][0] for d in debug_dicts]
     al_df["start_views"] = [d["trajectory_view_dir"][0] for d in debug_dicts]
-    
 
+    #2D projections:
+    if "final_latent_features" in debug_dicts[-1].keys():
+        # al_df["final_latent_features"] = [d["final_latent_features"] for d in debug_dicts]
+        nerf_latent_features = np.vstack([d["final_latent_features"] for d in debug_dicts])
+        print(nerf_latent_features.shape)
+
+        al_df["PCA"] = use_fitted_projector(nerf_latent_features, "PCA", info_dict["model_path"])
+        al_df["UMAP"] = use_fitted_projector(nerf_latent_features, "UMAP", info_dict["model_path"])
+    
     return al_df.sort_values("residual")
 
 
 def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis, surface_type, intervals=np.ones(4) * .1, n_steps=10, loss_threshold=0.1, lrate=5*1e-2, debugging_return=True, verbose=True, info_dict=None):
     ''' 
+    Gradient walk for only one location.
     parameters - (init_a, init_b) between 0 and 1
     view_dir - xyzh between -180, 180.
     desired_target - normalized percentages [0, 1] - normalizetion to tanh -1,1 happens in EncoderNeRFSDataset
@@ -245,7 +259,9 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
 
         inputs.append((input_a.detach().numpy().tolist(), input_b.detach().numpy().tolist(), input_dir.detach().numpy().tolist()))
         ##### a. Predict output distribution
-        raw_pos, raw_view, output     = trained_encoder(input_a, input_b, input_dir)
+        (raw_pos, raw_view), latent_features, output = trained_encoder(input_a, input_b, input_dir, return_latent_features=True)
+        #old version prediction witout latent features - changed on 11/11/2024
+        # raw_pos, raw_view, output     = trained_encoder(input_a, input_b, input_dir)
         prediction = (output.detach().numpy()); labels = sample_batch["output"]
         
         perc_pred         = (prediction[0] + 1) / 2
@@ -280,7 +296,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         if not((0 < input_a.item() < 1) and (0 < input_b.item() < 1)):
             print(f"Jumped of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
             break
-        print(raw_view.detach().numpy())
+        #print(raw_view.detach().numpy())
         ##### d. Log found gradients and predictions as percentages
         loss_trajectory.append(loss.detach().numpy())
 
@@ -305,10 +321,54 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     
     raw_pos = trajectory[-1]
     if debugging_return:
-        debugging_dict = {"final_residual":final_residual, "trajectory":trajectory, "last_view_dir":raw_view.detach().numpy(), "predictions":predictions, "gradients_norm":gradients_norm, "loss_trajectory":loss_trajectory, "inputs":inputs, "trajectory_view_dir":trajectory_view_dir}
+        debugging_dict = {"final_residual":final_residual, "trajectory":trajectory, "last_view_dir":raw_view.detach().numpy(), "predictions":predictions, "gradients_norm":gradients_norm, "loss_trajectory":loss_trajectory, "inputs":inputs, "trajectory_view_dir":trajectory_view_dir, "final_latent_features":latent_features.detach().numpy()}
         return raw_pos, debugging_dict
     else:
         return raw_pos, perc_pred
+
+##### 2D latent space projections:
+def project_data_on_2d(global_data, projector=None, query_data=None):
+    '''
+    global_data: (n, hidden_dim) - projector trainging features - NN hidden layer 
+    prjoector: sklearn 2d projector - PCA, TSNE, UMAP
+    new_data: (m, hidden_dim) - projector transform features - NN hidden layer 
+    '''
+
+    from sklearn.utils.validation import check_is_fitted
+    #if projector.__class__.__name__ == "TSNE":##TODO / TSNE does not have .transform()
+    
+    try:
+        check_is_fitted(projector)
+        print(f"{projector.__class__.__name__} already fitted.")
+        projected_results_global = projector.transform(global_data)
+    except:
+        print(f"Fitting not fitted {projector.__class__.__name__}...")
+        projected_results_global = projector.fit_transform(global_data)
+    
+    if query_data is not None:
+        projected_results_query = projector.transform(query_data)
+        return projector, (projected_results_global, projected_results_query)
+    
+
+    return projector, projected_results_global
+
+def use_fitted_projector(latent_features, projector_name, model_path):
+    '''
+    Project latent features into 2d using trained 2d projector taken from the same path as a trained model.
+    latent_features: (n, n_features) numpy array
+    projector_name: UMAP or PCA
+    model_path: path to trained encoder model
+    '''
+    import joblib
+    
+    projector_path         = model_path.replace("/encoder_", f"/{projector_name}_").replace(".pt", ".pkl")
+    projector              = joblib.load(projector_path)
+    projector, projections = project_data_on_2d(latent_features, projector)
+
+    print(f"{projector.__class__.__name__} projection -- OK.")
+    
+    return projections.tolist()
+
 
 
 #######

@@ -1,19 +1,19 @@
 {
     "0":{
         "classes_names":[
-            "greeness",
+            "greenness",
             "openness",
             "imageability",
-            "encolusre",
+            "enclosure",
             "walkability",
             "serenity"
         ],
         "mpc":null,
         "non_empty_classes_names":[
-            "greeness",
+            "greenness",
             "openness",
             "imageability",
-            "encolusre",
+            "enclosure",
             "walkability",
             "serenity"
         ],
