@@ -180,6 +180,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     al_df               = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
     
 
+    print(info_dict["non_empty_classes_names"])
 
     print("Features available for each location:", list(debug_dicts[-1].keys()))
     # print(list(info_dict.keys()))

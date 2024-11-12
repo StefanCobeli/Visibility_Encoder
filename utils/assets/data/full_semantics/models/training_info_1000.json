@@ -1,24 +1,24 @@
 {
     "0":{
         "classes_names":[
-            " building",
-            " water",
-            " road ",
-            " sidewalk",
-            " surface",
-            " tree",
-            " sky",
-            " miscelaneous"
+            "building",
+            "water",
+            "road",
+            "sidewalk",
+            "surface",
+            "tree",
+            "sky",
+            "miscelaneous"
         ],
         "mpc":null,
         "non_empty_classes_names":[
-            " building",
-            " water",
-            " road ",
-            " sidewalk",
-            " surface",
-            " tree",
-            " sky"
+            "building",
+            "water",
+            "road",
+            "sidewalk",
+            "surface",
+            "tree",
+            "sky"
         ],
         "train_size":17145,
         "test_size":4287,
