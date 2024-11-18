@@ -1,0 +1,14 @@
+[
+    {
+        "f_xyz":{
+            "greenness" : {"tree": 0.1}
+            , "enclosure" : {"( building + tree ) / ( road + surface + sidewalk + building + tree )":0.0}
+        },
+        "point_on_plane": [-300, 10, -292],
+        "direction_1": [1, 0, 0],
+        "direction_2": [0, 0, 1],
+        "r": [3500, 2500],
+        "num_locations":20,
+        "seed":25
+    }
+]

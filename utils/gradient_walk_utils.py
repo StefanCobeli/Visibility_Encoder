@@ -31,49 +31,66 @@ def choose_model_based_on_query(desired_distribution):
     return info_dict, rectified_query
     """
     query_labels = None
+
     #Scenarios:
-    #Semantics
-    #1.  ['building', ' water', 'tree', 'sky']
-    semantics_pricipal   = ['building', 'water', 'tree', 'sky'] 
-    labels, label_ids, query_ids = np.intersect1d(semantics_pricipal, list(desired_distribution.keys()), return_indices=True)
-    if len(labels) > 0: #semantics_pricipal case
-        info_dict_path = "./utils/assets/data/splits_physical/models/training_info_100.json"
-        rectified_distribution = np.zeros_like(semantics_pricipal, dtype=float) - 1
-        rectified_distribution[label_ids] = [desired_distribution[semantics_pricipal[qi]] for qi in label_ids]
+    # 0. Custom Perception
+    custom_formula_strings = []
+    custom_formula_names   = []
+    if type(list(desired_distribution.values())[0]) is dict:
+        semantics_full = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky', "miscellaneous"]
+        #Label names - e.g. enclosure, walkability, etc.
+        custom_formula_names   = list(desired_distribution.keys())
+        #formula strings - e.g. sidewalk / (road + sidewalk)
+        custom_formula_strings = [list(desired_distribution[cfn].keys())[0] for cfn in custom_formula_names]
+        rectified_distribution = [desired_distribution[cfn][cfs] for cfn, cfs in zip(custom_formula_names, custom_formula_strings)]
 
-        print(labels, label_ids, query_ids)
-        print(f"Querying for principal semantics:")
-        query_labels = semantics_pricipal
-
-    #2.  [' building' ' water' ' road ' ' sidewalk' ' surface' ' tree' ' sky']
-    semantics_adders     = ['road', 'sidewalk', 'surface']
-    semantics_full       = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky']
-    labels, label_ids, query_ids = np.intersect1d(semantics_adders, list(desired_distribution.keys()), return_indices=True)
-    if len(labels) > 0: #semantics_full case
-        labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
+        #same model and info_dict as in the #semantics_full case
         info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json"
-        # info_dict_path = "./utils/assets/data/splits_physical/models/training_info_350.json"
-        rectified_distribution = np.zeros_like(semantics_full, dtype=float)  - 1
-        rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
-        print("\nFull semantics found:")
-        print(f"Querying for full semantics: \n\t{semantics_full}")
-        query_labels = semantics_full
 
-    #Perception:
-    #3. ["greeness", "openness", "imageability", "encolusre", "walkability", "serenity"]
-    perceptions          = ["greenness", "openness", "imageability", "enclosure", "walkability", "serenity"]
-    labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)
-    if len(labels) > 0: #perception case
-        info_dict_path = "./utils/assets/data/perception_metrics/models/training_info_350.json"
-        rectified_distribution = np.zeros_like(perceptions, dtype=float) - 1
-        rectified_distribution[label_ids] = [desired_distribution[perceptions[qi]] for qi in label_ids]
-        print(f"Querying for perception semantics: \n\t{perceptions}")
-        query_labels = perceptions
-    
-    print(f"The query was:\n\t{desired_distribution}")
-    print(f"Looking for the rectified query:")
-    print(f"\t{dict(zip(query_labels, rectified_distribution))}")
-    print("~The rectified query will be further tanh normalized (-1, 1) in the nerfs.EncoderNeRFSDataset constructor.\n")
+        print("\nCustom perception query case found:")
+        print(f"Querying for custom perceptions: \n\t{custom_formula_names}\nwith forumulas:\n\t{custom_formula_names}")
+        query_labels = custom_formula_names
+
+    else:
+        #Original style query either {"water":d1, "sky":d2, ...} or [d1, d2, ...]
+        #Semantics
+        #1.  ['building', ' water', 'tree', 'sky']
+        semantics_pricipal   = ['building', 'water', 'tree', 'sky'] 
+        labels, label_ids, query_ids = np.intersect1d(semantics_pricipal, list(desired_distribution.keys()), return_indices=True)
+        if len(labels) > 0: #semantics_pricipal case
+            info_dict_path = "./utils/assets/data/splits_physical/models/training_info_100.json"
+            rectified_distribution = np.zeros_like(semantics_pricipal, dtype=float) - 1
+            rectified_distribution[label_ids] = [desired_distribution[semantics_pricipal[qi]] for qi in label_ids]
+
+            print(labels, label_ids, query_ids)
+            print(f"Querying for principal semantics:")
+            query_labels = semantics_pricipal
+
+        #2.  [' building' ' water' ' road ' ' sidewalk' ' surface' ' tree' ' sky']
+        semantics_adders     = ['road', 'sidewalk', 'surface']
+        semantics_full       = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky']
+        labels, label_ids, query_ids = np.intersect1d(semantics_adders, list(desired_distribution.keys()), return_indices=True)
+        if len(labels) > 0: #semantics_full case
+            labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
+            info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json"
+            # info_dict_path = "./utils/assets/data/splits_physical/models/training_info_350.json"
+            rectified_distribution = np.zeros_like(semantics_full, dtype=float)  - 1
+            rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
+            print("\nFull semantics found:")
+            print(f"Querying for full semantics: \n\t{semantics_full}")
+            query_labels = semantics_full
+
+        #Perception:
+        #3. ["greeness", "openness", "imageability", "encolusre", "walkability", "serenity"]
+        perceptions          = ["greenness", "openness", "imageability", "enclosure", "walkability", "serenity"]
+        labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)
+        if len(labels) > 0: #perception case
+            info_dict_path = "./utils/assets/data/perception_metrics/models/training_info_350.json"
+            rectified_distribution = np.zeros_like(perceptions, dtype=float) - 1
+            rectified_distribution[label_ids] = [desired_distribution[perceptions[qi]] for qi in label_ids]
+            print(f"Querying for perception semantics: \n\t{perceptions}")
+            query_labels = perceptions
+        
 
     #Building Materials:
     #4. ---
@@ -83,10 +100,19 @@ def choose_model_based_on_query(desired_distribution):
     # model_folder = "/".join(trained_model_path.split("/")[:-1])
     # model_name   = trained_model_path.split("/")[-1].replace("training_info", "encoder").replace("json", "pt")
      # trained_encoder.load_state_dict(info_dict["model_path"])
+    print(f"The query was:\n\t{desired_distribution}")
+    print(f"Looking for the rectified query:")
+    print(f"\t{dict(zip(query_labels, rectified_distribution))}")
+    print("~The rectified query will be further tanh normalized (-1, 1) in the nerfs.EncoderNeRFSDataset constructor.\n")
 
     #print(info_dict_path)
     info_dict = parse_training_info(info_dict_path=info_dict_path)
     info_dict["model_path"] = info_dict_path.replace("training_info", "encoder").replace("json", "pt")
+    
+    #pass also the information regarding the pontential custom formulas:
+    info_dict["custom_formula_names"]   = custom_formula_names
+    info_dict["custom_formula_strings"] = custom_formula_strings
+
     return info_dict, rectified_distribution # to be passed to gradient_walk_on_surface -  used for norm params and model path.
 
 def initialize_trained_encoder(encoder_name="semantics"):
@@ -122,14 +148,16 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     # encoder_name, info_dict = choose_model_based_on_query()
     
     if type(desired_distribution) is dict: 
+
         #Make search intervals based on the length of desired_distribution
         info_dict, rectified_distribution = choose_model_based_on_query(desired_distribution)
-        interval =  search_intervals[0]
+        interval = search_intervals[0]
         search_intervals = np.where(rectified_distribution==-1, 10, np.ones_like(rectified_distribution) * interval)
 
         desired_distribution = torch.tensor(rectified_distribution).to(torch.float32)
 
         print(f"Search Intervals:\n\t{search_intervals}")
+        print(f"Detected custom formula strings:\n\t{info_dict['custom_formula_strings']}")
 
     if type(desired_distribution) is list:
         desired_distribution = torch.tensor([float(x) for x in desired_distribution]).to(torch.float32)
@@ -230,8 +258,11 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         _, info_dict = initialize_trained_encoder()
         info_dict["model_path"] = f"./utils/assets/models/encoder_350.pt"
 
+    #Added with custom formulas:
+    custom_formula_strings = info_dict["custom_formula_strings"]
+
     norm_params                = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
-    trained_encoder            = network.nerfs.NeRFS(p, c, r, norm_params, surface_type=surface_type, pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
+    trained_encoder            = network.nerfs.NeRFS(p, c, r, norm_params, surface_type=surface_type, pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"], custom_formula_strings=custom_formula_strings)
     
     trained_encoder.load_state_dict(torch.load(info_dict["model_path"]))
     # trained_encoder.load_state_dict(info_dict["model_path"])
@@ -295,7 +326,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         a_grad, b_grad, dir_grad = input_a.grad, input_b.grad, input_dir.grad
         optimizer.step()
         if not((0 < input_a.item() < 1) and (0 < input_b.item() < 1)):
-            print(f"Jumped of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
+            print(f"Jumped time out of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
             break
         #print(raw_view.detach().numpy())
         ##### d. Log found gradients and predictions as percentages

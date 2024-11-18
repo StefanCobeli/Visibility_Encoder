@@ -42,7 +42,8 @@ def query_plane_locations_page():
         query_df             = pd.DataFrame(data)
 
         print(query_df["f_xyz"].values[0], type(query_df["f_xyz"].values[0]), type(query_df["f_xyz"].values[0]) is dict)
-        #return query_df.to_json(orient="records", indent=4)
+        print(list(query_df["f_xyz"].values[0].values())[0], type(list(query_df["f_xyz"].values[0].values())[0]))#Custom perception: Check if each dictionary entry is itself a dictionary.
+        # return query_df.to_json(orient="records", indent=4)
         # return query_df.to_json(orient="records", indent=4)
         
         p = torch.tensor([float(x) for x in query_df["point_on_plane"].values[0]]).to(torch.float32)

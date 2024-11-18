@@ -18,40 +18,42 @@ from utils.scripts.architectures.torch_nerf_src import signal_encoder
 
 
 ################################################################################
+############## Custom Index formulas parsing to tensor operations ##############
 ################################################################################
-
-#Dataset needs to have # surface_parametric() - a,b,p,c,r,surface_type, lL:,
-class EncoderNeRFSDataset(Dataset):
-    #def __init__(self, parameters=None, surface=None, norm_params=None):
-    def __init__(self, a, b, p, c, r, view_dir, targets, surface_type, norm_params=None):
-        '''a,b paramters; p-point on surface;l c-center or point of reference; r- radius'''
-        self.a = torch.autograd.Variable(a, requires_grad=True)   
-        self.b = torch.autograd.Variable(b, requires_grad=True) 
-        self.p = p#torch.tensor(p)#, requires_grad=True) 
-        self.c = c#torch.tensor(c)#, requires_grad=True) 
-        self.r = r#torch.tensor(r)#, requires_grad=True) 
-        
-        self.surface_type = surface_type
-        self.norm_params  = norm_params
-        self.view_dir     = view_dir
-        self.targets      = (targets * 2) - 1 #same as: (targets - .5) * 2
-        
-        # https://discuss.pytorch.org/t/newbie-getting-the-gradient-with-respect-to-the-input/12709/2        
-        self.a.retain_grad()
-        self.b.retain_grad()
-        #self.view_dir.retain_grad()
-        #self.targets.retain_grad()
+import re
+def expression_to_tensor_op(expression):
+    '''
+        tranforms id operations to torch tensor operation on vecotr with ids
+        "1 / ( 1 + 4 )" -> tensor_operation {tensor -> tensor[1]/(tensor[1] + tensor[4])}
+        Usage of returned operation: apply tensor_operation on encoder_outputs
+        result = tensor_operation(encoder_outputs)
+    '''
+    # Replace each number in the expression with a tensor indexing operation
+    expr_with_placeholders = re.sub(r'(\d+)', lambda x: f'encoder_outputs[{x.group(1)}]', expression)
     
-    def __getitem__(self,index):
-        
-        a, b, p, c, r, view_dir, targets, surface_type, norm_params = self.a, self.b, self.p, self.c, self.r, self.view_dir, self.targets, self.surface_type, self.norm_params
-                
-        sample = {"a":a, "b":b, "p":p, "c":c, "r":r, "view_dir":view_dir, "output":targets,  "surface_type":surface_type, "norm_params":norm_params}
-        
-        return sample
+    # Define a function that performs the operation when called
+    def tensor_operation(encoder_outputs):
+        # Safely evaluate the modified expression with encoder_outputs
+        return eval(expr_with_placeholders, {"encoder_outputs": encoder_outputs})
+    
+    # Return the tensor operation as a callable function
+    return tensor_operation
 
-    def __len__(self):
-        return len(self.a)
+def category_to_index_expression(category_expression, category_names):
+    """
+    Transoform category expression string to logits index expression string.
+    Example:
+    "water / ( water + surface )" -> '1 / ( 1 + 4 )'
+    """
+    
+    cat_exp_tokens = category_expression.split(" ")
+    #Replace categories with indexes
+    ind_exp_tokens = [str(category_names.index(s)) if s in category_names else s for s in cat_exp_tokens]
+    
+    index_expression = " ".join(ind_exp_tokens)
+    
+    return index_expression
+
 
 
 ################################################################################
@@ -86,10 +88,15 @@ class NeRFS(nn.Module):
         output_dim: int = 3,
         view_dir_dim: int = 3,
         feat_dim: int = 256,
-        surface_type: str = "square"
+        surface_type: str = "square",
+        custom_formula_strings: list = []
     ):
         """
         Constructor of class 'NeRF'.
+
+        p : point on the surface
+        c : either (direction1, direction2) generating the plane or normal vector on the surface
+        r : (l, L) width and breadth of the plane.
 
         Args:
             pos_dim (int): Dimensionality of coordinate vectors of sample points.
@@ -135,6 +142,22 @@ class NeRFS(nn.Module):
         self.c = c
         self.r = r
         #self.surface_parametric = surface_parametric
+
+        ##Custom perceptions tensor opearions:
+        # e.g. "1 / ( 1 + 4 )" -> tensor_operation {tensor -> tensor[1]/(tensor[1] + tensor[4])}
+        self.custom_formula_strings = custom_formula_strings
+        self.custom_formula_tensors = []
+        if len(self.custom_formula_strings) > 0:
+            self.category_names = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky', "miscellaneous"]
+            self.custom_formula_tensors = []
+            for ce in self.custom_formula_strings:
+                #Create the index operation string
+                index_expression    = category_to_index_expression(ce, self.category_names)
+                # Create the tensor operation
+                tensor_operation = expression_to_tensor_op(index_expression)
+                self.custom_formula_tensors.append(tensor_operation)
+
+
         try:
             self.surface = ParametricSurface(self.p,self.c,self.r,self.surface_type)
         except:
@@ -205,6 +228,12 @@ class NeRFS(nn.Module):
         latent_features = x
         rgb = self.sigmoid_actvn(self.fc_out(x))
 
+        #Apply custom formulas if they were defined in __init__
+        if len(self.custom_formula_tensors) > 0:
+            #print(rgb) rgb[0] -- Assumption that the prediction is not on batches / batch size is 1.
+            rgb = torch.vstack([cft(rgb[0]) for cft in self.custom_formula_tensors])
+            
+
         if return_latent_features:
             return (raw_pos, raw_view), latent_features, rgb
 
@@ -266,6 +295,9 @@ class NeRFS(nn.Module):
         latent_features = x
         rgb = self.sigmoid_actvn(self.fc_out(x))
 
+        #Apply custom formulas if they were defined in __init__
+        if len(self.custom_formula_tensors) > 0:
+            rgb = torch.vstack([cft(rgb) for cft in self.custom_formula_tensors])
         
         if return_latent_features:
             return (raw_pos, raw_view), latent_features, rgb
@@ -357,3 +389,41 @@ class ParametricSurface:
         return final_point
 
 # ParametricSurface(p,c,r,surface_type).parametrize(a,b)
+
+
+
+################################################################################
+################################################################################
+
+#Dataset needs to have # surface_parametric() - a,b,p,c,r,surface_type, lL:,
+class EncoderNeRFSDataset(Dataset):
+    #def __init__(self, parameters=None, surface=None, norm_params=None):
+    def __init__(self, a, b, p, c, r, view_dir, targets, surface_type, norm_params=None):
+        '''a,b paramters; p-point on surface;l c-center or point of reference; r- radius'''
+        self.a = torch.autograd.Variable(a, requires_grad=True)   
+        self.b = torch.autograd.Variable(b, requires_grad=True) 
+        self.p = p#torch.tensor(p)#, requires_grad=True) 
+        self.c = c#torch.tensor(c)#, requires_grad=True) 
+        self.r = r#torch.tensor(r)#, requires_grad=True) 
+        
+        self.surface_type = surface_type
+        self.norm_params  = norm_params
+        self.view_dir     = view_dir
+        self.targets      = (targets * 2) - 1 #same as: (targets - .5) * 2
+        
+        # https://discuss.pytorch.org/t/newbie-getting-the-gradient-with-respect-to-the-input/12709/2        
+        self.a.retain_grad()
+        self.b.retain_grad()
+        #self.view_dir.retain_grad()
+        #self.targets.retain_grad()
+    
+    def __getitem__(self,index):
+        
+        a, b, p, c, r, view_dir, targets, surface_type, norm_params = self.a, self.b, self.p, self.c, self.r, self.view_dir, self.targets, self.surface_type, self.norm_params
+                
+        sample = {"a":a, "b":b, "p":p, "c":c, "r":r, "view_dir":view_dir, "output":targets,  "surface_type":surface_type, "norm_params":norm_params}
+        
+        return sample
+
+    def __len__(self):
+        return len(self.a)
