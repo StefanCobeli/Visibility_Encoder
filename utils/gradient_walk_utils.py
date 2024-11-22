@@ -113,6 +113,7 @@ def choose_model_based_on_query(desired_distribution):
     info_dict["custom_formula_names"]   = custom_formula_names
     info_dict["custom_formula_strings"] = custom_formula_strings
 
+
     return info_dict, rectified_distribution # to be passed to gradient_walk_on_surface -  used for norm params and model path.
 
 def initialize_trained_encoder(encoder_name="semantics"):
@@ -207,12 +208,17 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
         
     al_df               = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
     
-
-    print(info_dict["non_empty_classes_names"])
-
-    print("Features available for each location:", list(debug_dicts[-1].keys()))
     # print(list(info_dict.keys()))
     # print(info_dict["non_empty_classes_names"])
+
+    #In case custom formula names were used, change the class names:
+    if len(info_dict["custom_formula_names"]) > 0:
+        info_dict["non_empty_classes_names"] = info_dict["custom_formula_names"]
+
+    # print(info_dict["non_empty_classes_names"])
+
+    # print("Features available for each location:", list(debug_dicts[-1].keys()))
+    # print("Example of returned predictions - f_xyz:", debug_dicts[0]["predictions"][0])
 
     # Assemble JSON to be outputed by server:
     if info_dict is None:
@@ -228,7 +234,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     if "final_latent_features" in debug_dicts[-1].keys():
         # al_df["final_latent_features"] = [d["final_latent_features"] for d in debug_dicts]
         nerf_latent_features = np.vstack([d["final_latent_features"] for d in debug_dicts])
-        print(nerf_latent_features.shape)
+        print("The shape of latent features is:", nerf_latent_features.shape)
 
         al_df["PCA"] = use_fitted_projector(nerf_latent_features, "PCA", info_dict["model_path"])
         al_df["UMAP"] = use_fitted_projector(nerf_latent_features, "UMAP", info_dict["model_path"])

@@ -158,6 +158,8 @@ class NeRFS(nn.Module):
                 self.custom_formula_tensors.append(tensor_operation)
 
 
+        print("Constructed tensor formulas:", self.custom_formula_tensors)
+
         try:
             self.surface = ParametricSurface(self.p,self.c,self.r,self.surface_type)
         except:
@@ -230,8 +232,11 @@ class NeRFS(nn.Module):
 
         #Apply custom formulas if they were defined in __init__
         if len(self.custom_formula_tensors) > 0:
+            # print("\nRaw semantics were: ", rgb.shape, list(zip(self.category_names, rgb[0])))
             #print(rgb) rgb[0] -- Assumption that the prediction is not on batches / batch size is 1.
-            rgb = torch.vstack([cft(rgb[0]) for cft in self.custom_formula_tensors])
+            rgb = torch.vstack([cft(rgb[0]) for cft in self.custom_formula_tensors]).T#.flatten()
+            # print("The predicted formulas are: ", self.custom_formula_strings)
+        # print("The predictions are: ", rgb.shape, rgb)
             
 
         if return_latent_features:
