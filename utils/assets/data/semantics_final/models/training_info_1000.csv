@@ -1,7 +1,7 @@
 ,0
-classes_names,"[' building', ' water', ' road ', ' sidewalk', ' surface', ' tree', ' sky', ' miscelaneous']"
+classes_names,"['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky', 'miscelaneous']"
 mpc,
-non_empty_classes_names,[' building' ' water' ' road ' ' sidewalk' ' surface' ' tree' ' sky' ' miscelaneous']
+non_empty_classes_names,['building' 'water' 'road' 'sidewalk' 'surface' 'tree' 'sky' 'miscelaneous']
 train_size,50956
 test_size,12740
 num_epochs,1000

@@ -19,6 +19,23 @@ from utils.scripts.architectures.torch_nerf_src import network
 # from utils.gradient_walk_utils import initialize_trained_encoder, intialize_input_as_tensor
 # from utils.scripts.architectures.train_location_encoder import rescale_from_norm_params 
 
+import joblib
+
+#copied from ./development_notebooks/Building_Data_Analysis_bk_11212024.ipynb on Mon. 11.25.2024
+def locations_to_zip(xyz_locations):
+    '''
+    Applies zip code to given xyz locations:
+    xyz_locations: (n,3) numpy array of xyz locations
+    
+    returns zip_codes - np list of ints with zip codes for each location
+    '''
+    
+    path_to_knn = "./utils/assets/data/zipcode_knn.pkl" # Change path when using it in server.py
+    knn_loaded_test = joblib.load(path_to_knn)
+
+    zip_codes = knn_loaded_test.predict(xyz_locations).astype(int)
+
+    return zip_codes
 
 def choose_model_based_on_query(desired_distribution):
     """
@@ -45,7 +62,8 @@ def choose_model_based_on_query(desired_distribution):
         rectified_distribution = [desired_distribution[cfn][cfs] for cfn, cfs in zip(custom_formula_names, custom_formula_strings)]
 
         #same model and info_dict as in the #semantics_full case
-        info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json"
+        # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
+        info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes
 
         print("\nCustom perception query case found:")
         print(f"Querying for custom perceptions: \n\t{custom_formula_names}\nwith forumulas:\n\t{custom_formula_names}")
@@ -68,12 +86,13 @@ def choose_model_based_on_query(desired_distribution):
 
         #2.  [' building' ' water' ' road ' ' sidewalk' ' surface' ' tree' ' sky']
         semantics_adders     = ['road', 'sidewalk', 'surface']
-        semantics_full       = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky']
+        # semantics_full       = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky'] #Old full semantics before unifying perception and semantics 11.25.2024
+        semantics_full = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky', "miscellaneous"]
         labels, label_ids, query_ids = np.intersect1d(semantics_adders, list(desired_distribution.keys()), return_indices=True)
         if len(labels) > 0: #semantics_full case
             labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
-            info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json"
-            # info_dict_path = "./utils/assets/data/splits_physical/models/training_info_350.json"
+            # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
+            info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes
             rectified_distribution = np.zeros_like(semantics_full, dtype=float)  - 1
             rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
             print("\nFull semantics found:")
@@ -230,6 +249,9 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     al_df["start_locs"] = [d["trajectory"][0] for d in debug_dicts]
     al_df["start_views"] = [d["trajectory_view_dir"][0] for d in debug_dicts]
 
+    #Assign zip locations: see ./development_notebooks/Building_Data_Analysis_bk_11212024.ipynb for the application on the whole test set:
+    al_df["zip"] = locations_to_zip(al_df[["x", "y", "z"]].values.tolist())
+
     #2D projections:
     if "final_latent_features" in debug_dicts[-1].keys():
         # al_df["final_latent_features"] = [d["final_latent_features"] for d in debug_dicts]
@@ -332,7 +354,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         a_grad, b_grad, dir_grad = input_a.grad, input_b.grad, input_dir.grad
         optimizer.step()
         if not((0 < input_a.item() < 1) and (0 < input_b.item() < 1)):
-            print(f"Jumped time out of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
+            print(f"Jumped out of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
             break
         #print(raw_view.detach().numpy())
         ##### d. Log found gradients and predictions as percentages
@@ -397,7 +419,6 @@ def use_fitted_projector(latent_features, projector_name, model_path):
     projector_name: UMAP or PCA
     model_path: path to trained encoder model
     '''
-    import joblib
     
     projector_path         = model_path.replace("/encoder_", f"/{projector_name}_").replace(".pt", ".pkl")
     projector              = joblib.load(projector_path)
