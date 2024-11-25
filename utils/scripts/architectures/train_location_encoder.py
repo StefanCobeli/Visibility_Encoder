@@ -130,7 +130,7 @@ def normalize_visibility_labels(vis_df, train_mean_dev=None):
     
     return vis_df, label_mean, label_dev
 
-def process_locations_visibility_data_frame(file_store, norm_params=None, min_percentage_per_class=None, label_split=",", missing_labels=False, selected_label_indexes=[0,1,5,6]):
+def process_locations_visibility_data_frame(file_store, norm_params=None, min_percentage_per_class=None, label_split=",", missing_labels=False, selected_label_indexes=None):#[0,1,5,6]):
     '''
     Process locations.csv file from file_store. 
     Table expected columns:
@@ -187,7 +187,11 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     if selected_label_indexes is None:
         #a. Filter down to only labels that appear:
         if min_percentage_per_class is None: #all indexes are considered selected indexes
-            selected_label_indexes = np.arange(len(vis_df_n["f_xyz"].iloc[0]))
+            # print(eval(vis_df_n["f_xyz"]))
+            #vis_df_n["f_xyz"] = vis_df_n["f_xyz"].lambda(f: eval(f)) #evaluate the list of strings
+            # print(vis_df_n["f_xyz"].values[0])
+            # print(eval(vis_df_n["f_xyz"].values[0]))
+            selected_label_indexes = np.arange(len(eval(vis_df_n["f_xyz"].iloc[0])))#evaluate the list of strings
             non_empty_classes      = np.ones_like(selected_label_indexes).astype(bool)
             print("Selected label indexes:", selected_label_indexes, non_empty_classes)
         else:
