@@ -76,7 +76,7 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
     #Build Predictions path and save to new csv file.
     predictions_path = "/".join(test_loc_path.split("/")[:-1] + ["/predictions/"]) + f"{test_loc_path.split('/')[-1][:-4]}_with_predictions.csv"
     test_df = test_df.drop(["xn", "yn", "zn",	"xhn", "yhn", "zhn"], axis=1)
-    test_df.to_csv(predictions_path, index=False)
+    # test_df.to_csv(predictions_path, index=False)
     # print("\n$$$$$$$$$$$$$$$$$$$$$\n")
 
     return mean_loss, all_losses, test_predictions, test_df, info_dict

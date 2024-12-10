@@ -37,6 +37,24 @@ def locations_to_zip(xyz_locations):
 
     return zip_codes
 
+
+def load_model_from_info_dict_path(info_dict_path):
+    '''
+    Load trained model based on path to info dictionary.
+    '''
+    
+    # Initialize NeRFS model with weights of trainedNeRF model
+    info_dict       = pd.read_json(info_dict_path).to_dict()[0]
+    print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])
+    # return info_dict
+    norm_params     = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
+
+    trained_model_path = info_dict_path.replace(".json", ".pt").replace("training_info", "encoder")
+    trained_encoder            = network.nerfs.NeRFS(norm_params=norm_params, surface_type="square", pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
+    trained_encoder.load_state_dict(torch.load(trained_model_path))
+    
+    return trained_encoder, info_dict
+
 def choose_model_based_on_query(desired_distribution):
     """
     Find what model should be used.

@@ -399,11 +399,14 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
         
     trlh, tlh = np.vstack(trlh), np.vstack(tlh)
 
+    # print(norm_params[0],norm_params[1],norm_params[2],norm_params[3])
+    print({"classes_names":[n.strip(" ") for n in classes_names]})
+
     import sys
     np.set_printoptions(threshold=sys.maxsize, suppress=True, linewidth=500)
-    training_info_df = pd.DataFrame({"classes_names":[n.strip(" ") for n in classes_names]\
+    training_info_df = pd.DataFrame({"classes_names":[[n.strip(" ") for n in classes_names]]\
                   , "mpc":mpc\
-                  , "non_empty_classes_names":[n.strip(" ") for n in non_empty_classes_names]\
+                  , "non_empty_classes_names":[[n.strip(" ") for n in non_empty_classes_names]]\
                   , "train_size": len(train_loader.dataset)
                   , "test_size": len(test_loader.dataset)
                   , "num_epochs":num_epochs\

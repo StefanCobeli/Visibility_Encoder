@@ -5,7 +5,7 @@ from flask_cors import CORS, cross_origin
 from utils.scripts.architectures.train_location_encoder import *
 from utils.test_location_encoder                        import *
 from utils.view_impact                                  import remove_builiding_and_retrain_model, reset_encoder_weights
-from utils.gradient_walk_utils                          import query_locations, query_locations_on_surface
+from utils.gradient_walk_utils                          import query_locations, query_locations_on_surface, load_model_from_info_dict_path
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -200,8 +200,6 @@ def predict_facade_from_base_points_page():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
-
-
 @app.route("/test_encoder_on_current_position", methods=['POST', "GET"])
 def test_encoder_on_current_position_page():
     """
@@ -233,7 +231,7 @@ def test_encoder_on_current_position_page():
         curr_neigborhood[["x", "y", "z"]] = curr_neigborhood[["x", "y", "z"]] + neigborhood_deltas
 
         test_df = curr_neigborhood
-        test_df.to_csv(test_path, index=False)
+        # test_df.to_csv(test_path, index=False)
         #print("\n$$$$$$$$$$$$$$$$$$$$$\n")
             
     except Exception as e:
@@ -243,14 +241,35 @@ def test_encoder_on_current_position_page():
         test_path = f'./utils/assets/test_data/locations_example_single.csv'
 
     start_time = time.time()
-    nmt = request.args.get('nmt', 'percentages')       #normalization type
-    bs  = int(request.args.get('bs', '32768')) #batch size - default 2**15 - 32768
+    # nmt = request.args.get('nmt', 'percentages')       #normalization type
+    # bs  = int(request.args.get('bs', '32768')) #batch size - default 2**15 - 32768
     # test_path = f"./utils/assets/test_data/locations_{test_name}.csv"
     
+    
+    info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"
+
+    trained_encoder, info_dict = load_model_from_info_dict_path(info_dict_path)
+    
+    
+    test_predictions = []
+    locations = test_df[["x", "y", "z", "xh", "yh", "zh"]].values.tolist()
+    
+    for location in locations:
+        
+        xyz  = torch.tensor(location[:3])
+        xyzh = torch.tensor(location[3:])
+
+        _,_, prediction = trained_encoder.predict_from_raw(xyz, xyzh)
+        
+        test_predictions.append((1+prediction[0].detach().numpy())*.5)
+    
+    test_predictions = np.vstack(test_predictions)
+    
+    
     #print(ml)
-    mp = "./utils/assets/models/"# path to models folder
-    mv = 350                     #model version
-    mean_loss, all_losses, test_predictions, test_df, info_dict = test_encoder_on_data(test_path, mp, mv, True, bs, nmt)
+    #mp = "./utils/assets/models/"# path to models folder
+    #mv = 350                     #model version
+    #mean_loss, all_losses, test_predictions, test_df, info_dict = test_encoder_on_data(test_path, mp, mv, True, bs, nmt)
 
     # print(test_predictions)
     # print()
@@ -259,9 +278,11 @@ def test_encoder_on_current_position_page():
     # print(test_df)
     
     keys   = test_df[["x", "y", "z", "xh", "yh", "zh"]].values.tolist()[:1]
-    values = [test_predictions.mean(axis=0).tolist()]#.tolist()
+    #values = [test_predictions.mean(axis=0).tolist()]#.tolist()
+    values = [dict(zip(info_dict["non_empty_classes_names"], test_predictions.mean(axis=0).tolist()))]
 
     return jsonify([{"camera_coordinates": k, "predictions" : v} for k, v in zip(keys, values)])
+
 
 
 
