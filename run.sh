@@ -54,71 +54,80 @@ cd $path_to_server
 echo "\ncurrent path is"
 pwd
 #Check if conda environment exists.
+# Define environment and files
+ENV_NAME="visibility_encoder"
+# YML_FILE="environment.yml"
+YML_FILE="environment_minimal.yml"
 
-if { conda env list | grep 'visibility_encoder'; } >/dev/null 2>&1; then 
+if { conda env list | grep $ENV_NAME; } >/dev/null 2>&1; then 
   echo "Conda env already exists"; 
   # conda init
   eval "$(conda shell.bash hook)"
   echo "Conda initalized"
-  conda activate visibility_encoder
+  conda activate $ENV_NAME
+  echo "\nActivate envirnmoent $ENV_NAME from $YML_FILE "
   # Update conda environment:
-  conda env update --name visibility_encoder --file environment.yml --prune
+  conda env update --name $ENV_NAME --file $YML_FILE --prune
 
 else 
   # echo "doesn't exist"; 
-  echo "\nCreating conda environment from environment.yml"
-  # conda env create -f environment.yml  
+  echo "\nCreating conda environment from $YML_FILE"
+  conda env create -f $ENV_NAME  
 
   #Alternative manual environment creation:
-  echo "Parsing environment.yml for pip-compatible packages..."
+  # echo "Parsing $ENV_NAME for pip-compatible packages..."
   
-  # Extract packages from the environment.yml file
-  PACKAGES=$(grep -E "^[ ]*-[ ]*[a-zA-Z0-9._\-]+" $YML_FILE | sed 's/^[ ]*-[ ]*//')
+  # # # Extract packages from the $ENV_NAME file
+  # # PACKAGES=$(grep -E "^[ ]*-[ ]*[a-zA-Z0-9._\-]+" $YML_FILE | sed 's/^[ ]*-[ ]*//')
+  # # Extract only the package names (remove Conda-specific version constraints)
+  # PACKAGES=$(grep -E "^[ ]*-[ ]*[a-zA-Z0-9._\-]+" $YML_FILE | sed -E 's/^[ ]*-[ ]*//' | sed -E 's/=[^=]+//g')
 
-  # Create a minimal Conda environment with Python
-  echo "Creating a minimal environment..."
-  conda create -n $ENV_NAME python=3.9 -y
+
+  # # Create a minimal Conda environment with Python
+  # echo "Creating a minimal environment..."
+  # conda create -n $ENV_NAME python=3.9 -y
   
-  # Activate the new environment
-  eval "$(conda shell.bash hook)"
-  conda activate $ENV_NAME
+  # # Activate the new environment
+  # eval "$(conda shell.bash hook)"
+  # conda activate $ENV_NAME
 
-  # Try to install each package via pip
-  echo "Installing packages using pip..."
-  for PACKAGE in $PACKAGES; do
-    echo "Installing $PACKAGE..."
-    if ! pip install $PACKAGE; then
-      echo "Warning: Failed to install $PACKAGE. Skipping..."
-    fi
-  done
+  # # Try to install each package via pip
+  # echo "Installing packages using pip..."
+  # for PACKAGE in $PACKAGES; do
+  #   echo "Installing $PACKAGE..."
+  #   if ! pip install $PACKAGE; then
+  #     echo "Warning: Failed to install $PACKAGE. Skipping..."
+  #   fi
+  # done
 
-  echo "Environment creation completed with available packages."
+  # echo "Environment creation completed with available packages."
 
   eval "$(conda shell.bash hook)"
   echo "Conda initalized"
-  conda activate visibility_encoder
+  conda activate $ENV_NAME
 fi
 
 #################### 3. ######################
 # 3. Running the interface server:
 cd $path_to_interface
-npm install
-npm run build
-npm run dev &
+# npm install
+# npm run build
+# npm run dev &
 
 sleep 1
 
 echo "npm visual interface server running..."
 
 
-#Run python server
-# python server.py 
+#################### 4. ######################
+#4. Run python server
+cd $path_to_server
+python server.py 
 
 sleep 1
 echo "Python visual encoder computation running..."
 
 
-cd $path_to_server
 pwd
 
 echo
