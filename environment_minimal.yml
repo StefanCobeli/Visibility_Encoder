@@ -1,0 +1,14 @@
+name: base
+channels:
+  - conda-forge
+dependencies:
+  - python==3.10.13
+  - conda
+  - pip
+  - nb_conda
+  - notebook
+  - ipyvolume
+  - pyvista
+  - jupyter
+  - traitlets==5.9.0
+prefix: /opt/homebrew/Caskroom/miniforge/base
