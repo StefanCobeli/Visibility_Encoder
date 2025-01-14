@@ -30,13 +30,14 @@ done
 
 echo
 
+
+cd $path_to_interface
 if [ "$path_to_interface" = "0" ]; then
     export path_to_interface="./"
     echo "Clonig repsitory to: $path_to_interface"
     echo "git clone https://github.com/rbv3/visibility-data-generator.git $path_to_interface"
 else
     echo "Pulling new git commits."
-    cd $path_to_interface
     git pull
     echo "Current dirctory is:"
     # pwd
@@ -44,16 +45,7 @@ else
 fi
 
 
-#################### 3. ######################
-# 3. Running the interface server:
-cd $path_to_interface
-# npm install
-# npm run build
-# npm run dev &
 
-sleep 1
-
-echo "npm visual interface server running..."
 
 
 #################### 4. ######################
@@ -73,14 +65,50 @@ if { conda env list | grep 'visibility_encoder'; } >/dev/null 2>&1; then
   conda env update --name visibility_encoder --file environment.yml --prune
 
 else 
-  echo "doesn't exist"; 
-  echo "Creating conda environment from environment.yml"
-  conda env create -f environment.yml  
+  # echo "doesn't exist"; 
+  echo "\nCreating conda environment from environment.yml"
+  # conda env create -f environment.yml  
+
+  #Alternative manual environment creation:
+  echo "Parsing environment.yml for pip-compatible packages..."
+  
+  # Extract packages from the environment.yml file
+  PACKAGES=$(grep -E "^[ ]*-[ ]*[a-zA-Z0-9._\-]+" $YML_FILE | sed 's/^[ ]*-[ ]*//')
+
+  # Create a minimal Conda environment with Python
+  echo "Creating a minimal environment..."
+  conda create -n $ENV_NAME python=3.9 -y
+  
+  # Activate the new environment
+  eval "$(conda shell.bash hook)"
+  conda activate $ENV_NAME
+
+  # Try to install each package via pip
+  echo "Installing packages using pip..."
+  for PACKAGE in $PACKAGES; do
+    echo "Installing $PACKAGE..."
+    if ! pip install $PACKAGE; then
+      echo "Warning: Failed to install $PACKAGE. Skipping..."
+    fi
+  done
+
+  echo "Environment creation completed with available packages."
+
   eval "$(conda shell.bash hook)"
   echo "Conda initalized"
   conda activate visibility_encoder
 fi
 
+#################### 3. ######################
+# 3. Running the interface server:
+cd $path_to_interface
+npm install
+npm run build
+npm run dev &
+
+sleep 1
+
+echo "npm visual interface server running..."
 
 
 #Run python server
