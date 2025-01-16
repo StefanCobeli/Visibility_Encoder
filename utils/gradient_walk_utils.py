@@ -57,6 +57,8 @@ def load_model_from_info_dict_path(info_dict_path):
 
 def choose_model_based_on_query(desired_distribution):
     """
+    tanh input and tanh output 
+    [-1,1] -> [-1, 1]
     Find what model should be used.
     Return info_dict with model_path entry and 
     rectified query as list of length being the output of the model.
@@ -66,7 +68,7 @@ def choose_model_based_on_query(desired_distribution):
     return info_dict, rectified_query
     """
     query_labels = None
-
+    print(f"The received query is:\n\t{desired_distribution}")
     #Scenarios:
     # 0. Custom Perception
     custom_formula_strings = []
@@ -95,7 +97,7 @@ def choose_model_based_on_query(desired_distribution):
         labels, label_ids, query_ids = np.intersect1d(semantics_pricipal, list(desired_distribution.keys()), return_indices=True)
         if len(labels) > 0: #semantics_pricipal case
             info_dict_path = "./utils/assets/data/splits_physical/models/training_info_100.json"
-            rectified_distribution = np.zeros_like(semantics_pricipal, dtype=float) - 1
+            rectified_distribution = np.zeros_like(semantics_pricipal, dtype=float) #- 1
             rectified_distribution[label_ids] = [desired_distribution[semantics_pricipal[qi]] for qi in label_ids]
 
             print(labels, label_ids, query_ids)
@@ -111,7 +113,7 @@ def choose_model_based_on_query(desired_distribution):
             labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
             # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
             info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes
-            rectified_distribution = np.zeros_like(semantics_full, dtype=float)  - 1
+            rectified_distribution = np.zeros_like(semantics_full, dtype=float)  #- 1
             rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
             print("\nFull semantics found:")
             print(f"Querying for full semantics: \n\t{semantics_full}")
@@ -123,7 +125,7 @@ def choose_model_based_on_query(desired_distribution):
         labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)
         if len(labels) > 0: #perception case
             info_dict_path = "./utils/assets/data/perception_metrics/models/training_info_350.json"
-            rectified_distribution = np.zeros_like(perceptions, dtype=float) - 1
+            rectified_distribution = np.zeros_like(perceptions, dtype=float) #- 1
             rectified_distribution[label_ids] = [desired_distribution[perceptions[qi]] for qi in label_ids]
             print(f"Querying for perception semantics: \n\t{perceptions}")
             query_labels = perceptions
@@ -202,7 +204,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
         info_dict = None
     #print(desired_distribution)
     
-    n_trials  = num_locations * 10
+    n_trials  = num_locations * 2 #10
     #Needed just for view_dir intialization
     print("\nProcessing locations_example data for untilted viewing directions. Locations are sampled randomly.")
     vis_df, normp, _   = process_locations_visibility_data_frame("./utils/assets/test_data/locations_example.csv")  
@@ -236,6 +238,35 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
         raw_pos, debugging_dict = gradient_walk_on_surface(parameters, view_dir, desired_distribution, surface_basis, surface_type\
                  , intervals=search_intervals, n_steps=max_steps, loss_threshold=lt, lrate=lrate, debugging_return=True, verbose=False\
                  , info_dict=info_dict)
+        # debugging_dict["predictions"] - are the actual_percentages [0, 1] for the whole trajectory
+        # desired_distribution - are percentages [0, 1]
+
+        ##################################################################################
+        # Check if prediction is in +- distance from desired distribution
+        # desired_prediction      = desired_distribution.detach().numpy() #* 2 - 1
+        # actual_prediction       = np.array(debugging_dict["predictions"])[-1] #* 2 - 1
+        
+        # admisable_interval      = 0.1 # admisable interval in [-1, 1] tanh deviation / twice as it would be in percentages [0, 1]
+        
+        # close_prediction      = np.logical_or(desired_prediction < 0.01, np.abs(desired_prediction - actual_prediction) < admisable_interval)
+
+        # print("\ndesired_prediction:", np.round(desired_prediction, 2), "\nactual_prediction:", np.round(actual_prediction, 2)\
+        # , "\nclose_prediction:", close_prediction, "\n") 
+
+        # print("Not close prediction sum:", np.logical_not(close_prediction), np.logical_not(close_prediction).sum())
+        # if np.logical_not(close_prediction).sum() < 2:
+        #     print(f"Prediction  {i+1} is close enough:")
+        ##################################################################################
+
+        admissible_interval = 0.1
+        admissible_errors   = 1
+        if debugging_dict["close_enough"]:
+            print(f"Detected close enough location {i+1}.")
+            #break
+        else:
+            print(f"Skipped locations {i+1}")
+            continue
+
         
         ach_locs.append(np.hstack([raw_pos, debugging_dict["last_view_dir"]]))
         debug_dicts.append(debugging_dict)
@@ -244,7 +275,8 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
             break 
         
     al_df               = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
-    
+    if len(al_df)==0:
+        return al_df
     # print(list(info_dict.keys()))
     # print(info_dict["non_empty_classes_names"])
 
@@ -279,6 +311,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
         al_df["PCA"] = use_fitted_projector(nerf_latent_features, "PCA", info_dict["model_path"])
         al_df["UMAP"] = use_fitted_projector(nerf_latent_features, "UMAP", info_dict["model_path"])
     
+
     return al_df.sort_values("residual")
 
 
@@ -332,6 +365,8 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         parsing_bar = range(n_steps)
     
     print()
+    jumped_off_surface_step = -1 #If the predictions didn't get off surface then it's -1, otherwise the i where it got off surface
+    close_enough            = False # Flag to detect if location was close, to be returnd in debugging_dict
     for i in parsing_bar:
         # print(f"Optimization step {i}/{n_steps}")
 
@@ -373,6 +408,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         optimizer.step()
         if not((0 < input_a.item() < 1) and (0 < input_b.item() < 1)):
             print(f"Jumped out of the surface on step {i}/{n_steps}, with a: {input_a.item()} and b: {input_b.item() }")
+            jumped_off_surface_step = i
             break
         #print(raw_view.detach().numpy())
         ##### d. Log found gradients and predictions as percentages
@@ -383,6 +419,17 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
         
         if verbose:
             parsing_bar.set_description(f"Gradient norm: a {pos_grad_norm[0]:.4f}, b {pos_grad_norm[1]:.4f}, dir {pos_grad_norm[2]:.4f}")
+
+
+        admissible_interval = 0.1
+        admissible_errors   = 1
+        if prediction_is_close_enough(desired_prediction=labels.detach().numpy() / 2 + 0.5\
+                                    , actual_prediction=perc_pred\
+                                    , admissible_interval=admissible_interval\
+                                    , admissible_errors=admissible_errors):
+            close_enough = True
+            print("Detected close enough prediction.")
+            break
 
         if loss.mean() < loss_threshold:
             print(f"Loss {loss.mean()} passsed the threshold {loss_threshold}. Stoping the optimization.")
@@ -399,7 +446,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     
     raw_pos = trajectory[-1]
     if debugging_return:
-        debugging_dict = {"final_residual":final_residual, "trajectory":trajectory, "last_view_dir":raw_view.detach().numpy(), "predictions":predictions, "gradients_norm":gradients_norm, "loss_trajectory":loss_trajectory, "inputs":inputs, "trajectory_view_dir":trajectory_view_dir, "final_latent_features":latent_features.detach().numpy()}
+        debugging_dict = {"final_residual":final_residual, "trajectory":trajectory, "last_view_dir":raw_view.detach().numpy(), "predictions":predictions, "jumped_off_surface_step":jumped_off_surface_step, "close_enough":close_enough, "gradients_norm":gradients_norm, "loss_trajectory":loss_trajectory, "inputs":inputs, "trajectory_view_dir":trajectory_view_dir, "final_latent_features":latent_features.detach().numpy()}
         return raw_pos, debugging_dict
     else:
         return raw_pos, perc_pred
@@ -622,13 +669,48 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
     
     return actual_loc, perc_pred
 
+def prediction_is_close_enough(desired_prediction, actual_prediction, admissible_interval, admissible_errors=1):
+    '''
+    Compare [-1, 1] percentage predictions: 
+    desired_prediction either is close to -1, or is close to actual prediction. 
+
+    return True or False
+    '''
+
+    # debugging_dict["predictions"] - are the actual_percentages [0, 1] for the whole trajectory
+    # desired_distribution - are percentages [0, 1]
+
+    # Check if prediction is in +- distance from desired distribution
+    # desired_prediction      = desired_distribution.detach().numpy() #* 2 - 1
+    # actual_prediction       = np.array(debugging_dict["predictions"])[-1] #* 2 - 1
+    
+    # admissible_interval      = 0.1 # admisable interval in [-1, 1] tanh deviation / twice as it would be in percentages [0, 1]
+    
+    close_prediction      = np.logical_or(desired_prediction < 0.01\
+                                        , np.abs(desired_prediction - actual_prediction) < admissible_interval)
+
+    print("\ndesired_prediction:", np.round(desired_prediction, 2), "\nactual_prediction:", np.round(actual_prediction, 2)\
+    , "\nclose_prediction:", close_prediction, "\n") 
+
+    print("Not close prediction sum:", np.logical_not(close_prediction), np.logical_not(close_prediction).sum(), admissible_errors, np.logical_not(close_prediction).sum() <= admissible_errors)
+    if np.logical_not(close_prediction).sum() <= admissible_errors:
+        #print(f"Prediction  {i+1} is close enough:")
+        return True
+
+    return False
+
 
 def interval_desired_target_loss(prediction, desired_target, intervals):
     '''Compute target if prediction can be within interval of desired_target:
     interval_target = interval_desired_target_loss(prediction, desired_target, intervals)
     '''
+    #prediction and desired_target are in [-1, 1] (tanh)
+    #Check if prediction in interval from target.
     pred_in_interval = np.logical_and(prediction < desired_target + intervals, 
                                     prediction > desired_target - intervals)
+
+    #Exclude targets with label < .05 (5% = -0.9 in tanh):
+    # pred_in_interval = np.logical_and(desired_target>-0.9, pred_in_interval)
 
     interval_target = torch.tensor(np.where(pred_in_interval, prediction, desired_target))
     

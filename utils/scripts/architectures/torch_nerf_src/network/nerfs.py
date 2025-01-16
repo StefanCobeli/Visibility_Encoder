@@ -302,7 +302,11 @@ class NeRFS(nn.Module):
 
         #Apply custom formulas if they were defined in __init__
         if len(self.custom_formula_tensors) > 0:
+            #bring -1,1 predictions to 0,1 
+            rgb = (rgb + 1) / 2
             rgb = torch.vstack([cft(rgb) for cft in self.custom_formula_tensors])
+            #bring 0,1 predictions back to -1, 1
+            rgb = (rgb * 2) - 1
         
         if return_latent_features:
             return (raw_pos, raw_view), latent_features, rgb

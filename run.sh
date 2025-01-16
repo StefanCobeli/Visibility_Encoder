@@ -67,7 +67,7 @@ if { conda env list | grep $ENV_NAME; } >/dev/null 2>&1; then
   conda activate $ENV_NAME
   echo "\nActivate envirnmoent $ENV_NAME from $YML_FILE "
   # Update conda environment:
-  conda env update --name $ENV_NAME --file $YML_FILE --prune
+  # conda env update --name $ENV_NAME --file $YML_FILE --prune
 
 else 
   # echo "doesn't exist"; 
@@ -105,14 +105,20 @@ else
   eval "$(conda shell.bash hook)"
   echo "Conda initalized"
   conda activate $ENV_NAME
+
+  #For the first run make sure you install npm packages
+  cd $path_to_interface
+  npm install
+  npm run build
+  cd $path_to_server
 fi
 
 #################### 3. ######################
 # 3. Running the interface server:
+
 cd $path_to_interface
-# npm install
-# npm run build
-# npm run dev &
+npm run dev &
+server_pid=$! #catch id of process where server is running.
 
 sleep 1
 
@@ -131,6 +137,12 @@ echo "Python visual encoder computation running..."
 pwd
 
 echo
+
+# Stop the server when the script exits
+trap "kill $server_pid" EXIT
+
+# Wait for user input to keep the script running
+read -p "Press Enter to stop the server..."
 
 # # Initialize conda
 # echo "Initializing conda..."

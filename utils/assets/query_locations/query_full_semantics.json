@@ -1,11 +1,11 @@
 [
     {
         "f_xyz":{
-            "building": 0.0,
-            "water": 0.3,
+            "building": 0.2,
+            "water": 0.5,
             "road": 0.0,
-            "sidewalk": 0.5,
-            "surface": 0.5,
+            "sidewalk": 0.0,
+            "surface": 0.0,
             "tree": 0.0,
             "sky": 0.0
         },
