@@ -1,0 +1,15 @@
+[
+    {
+        "f_xyz":{
+            "greenness" : {"tree": 0.7}
+            , "enclosure" : {"( building + tree ) / ( road + surface + sidewalk + building + tree )":0.8}
+            , "walkability" : {"( sidewalk ) / ( road + sidewalk )":0.3}
+        },
+        "point_on_plane": [1510,   41, 1086],
+        "direction_1": [-0.9863, 0.0082, -0.1644],
+        "direction_2": [-0.1644, 0.0083, 0.9864],
+        "r": [2784.3201, 1624.2933],
+        "num_locations":50,
+        "seed":25
+    }
+]

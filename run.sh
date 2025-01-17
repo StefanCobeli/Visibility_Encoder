@@ -1,6 +1,12 @@
 
 #!/bin/bash
 
+#Note:
+# If script breaks and server is still running: find and kill PID using the following commands
+# lsof -i :5173 # Get the PID behind localhost:5173 (the npm server)
+# kill -9 PID # PID is returned by the lsof command above.
+
+
 # Exit immediately if a command exits with a non-zero status
 set -e
 
@@ -40,7 +46,7 @@ else
     echo "Pulling new git commits."
     git pull
     echo "Current dirctory is:"
-    # pwd
+    pwd
     # ls -l
 fi
 

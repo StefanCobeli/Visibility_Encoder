@@ -1,9 +1,9 @@
 [
     {
         "f_xyz":{
-            "greenness" : {"tree": 0.1}
-            , "enclosure" : {"( building + tree ) / ( road + surface + sidewalk + building + tree )":0.0}
-            , "walkability" : {"( sidewalk ) / ( road + sidewalk )":0.1}
+            "greenness" : {"tree": 0.7}
+            , "enclosure" : {"( building + tree ) / ( road + surface + sidewalk + building + tree )":0.2}
+            , "walkability" : {"( sidewalk ) / ( road + sidewalk )":0.2}
         },
         "point_on_plane": [-300, 10, -292],
         "direction_1": [1, 0, 0],

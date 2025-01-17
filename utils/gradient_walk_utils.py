@@ -1,5 +1,6 @@
 
 from cgi import test
+
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -9,6 +10,7 @@ import torch
 
 import os
 
+from copy import copy
 
 from utils.geometry_utils import *
 from utils.geometry_utils import surface_parametric
@@ -186,7 +188,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     #TODO: Extract desired distrubutions from potential dictionary
     #1. Make a decision of encoder to be used based on the provided keys:
     # encoder_name, info_dict = choose_model_based_on_query()
-    
+    original_distribution = copy(desired_distribution)
     if type(desired_distribution) is dict: 
 
         #Make search intervals based on the length of desired_distribution
@@ -260,7 +262,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
 
         admissible_interval = 0.1
         admissible_errors   = 1
-        if debugging_dict["close_enough"]:
+        if debugging_dict["close_enough"] != -1:
             print(f"Detected close enough location {i+1}.")
             #break
         else:
@@ -275,8 +277,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
             break 
         
     al_df               = pd.DataFrame(data=ach_locs, columns=vis_df.columns.values[:6])#achived locations data frame
-    if len(al_df)==0:
-        return al_df
+    
     # print(list(info_dict.keys()))
     # print(info_dict["non_empty_classes_names"])
 
@@ -299,6 +300,27 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
     al_df["start_locs"] = [d["trajectory"][0] for d in debug_dicts]
     al_df["start_views"] = [d["trajectory_view_dir"][0] for d in debug_dicts]
 
+    print("Search surface had the parameters:\n\t", surface_basis)
+
+    print(f"The original query was:\n\t{original_distribution}")
+    print(f"The rectified query was:\n\t{desired_distribution}")
+
+    ###print status of returned results
+    al_df["close_enough"] = [d["close_enough"] for d in debug_dicts]
+    close_enough_dictionary = dict(al_df.groupby("close_enough").count()["f_xyz"])
+    for num_errors in close_enough_dictionary:
+        print(f"{close_enough_dictionary[num_errors]} locations -> {num_errors} missed labels.")
+
+        missed_trials       = (i + 1) - len(al_df) #n_trials - len(al_df)
+        not_found_locations = num_locations - len(al_df) #n_trials - len(al_df)
+        print(f"\nFound       {len(al_df)} / {num_locations} requested locations;")
+        print(f"An additional {not_found_locations} were requested;")
+        print(f"Missed        {missed_trials} / {i+1} trials.\n")
+    print("Result misses status:",  dict(al_df.groupby("close_enough").count()["f_xyz"]), "\n")
+
+    if len(al_df)==0:
+        return al_df
+
     #Assign zip locations: see ./development_notebooks/Building_Data_Analysis_bk_11212024.ipynb for the application on the whole test set:
     al_df["zip"] = locations_to_zip(al_df[["x", "y", "z"]].values.tolist())
 
@@ -310,6 +332,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
 
         al_df["PCA"] = use_fitted_projector(nerf_latent_features, "PCA", info_dict["model_path"])
         al_df["UMAP"] = use_fitted_projector(nerf_latent_features, "UMAP", info_dict["model_path"])
+    
     
 
     return al_df.sort_values("residual")
@@ -366,7 +389,7 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
     
     print()
     jumped_off_surface_step = -1 #If the predictions didn't get off surface then it's -1, otherwise the i where it got off surface
-    close_enough            = False # Flag to detect if location was close, to be returnd in debugging_dict
+    close_enough            = -1 # number of missed labels -1 means above admissible / Flag to detect if location was close, to be returnd in debugging_dict
     for i in parsing_bar:
         # print(f"Optimization step {i}/{n_steps}")
 
@@ -421,14 +444,14 @@ def gradient_walk_on_surface(parameters, view_dir, desired_target, surface_basis
             parsing_bar.set_description(f"Gradient norm: a {pos_grad_norm[0]:.4f}, b {pos_grad_norm[1]:.4f}, dir {pos_grad_norm[2]:.4f}")
 
 
-        admissible_interval = 0.1
+        admissible_interval = 0.09 #tanh interval. Error will be double.
         admissible_errors   = 1
-        if prediction_is_close_enough(desired_prediction=labels.detach().numpy() / 2 + 0.5\
+        close_enough = prediction_is_close_enough(desired_prediction=labels.detach().numpy() / 2 + 0.5\
                                     , actual_prediction=perc_pred\
                                     , admissible_interval=admissible_interval\
-                                    , admissible_errors=admissible_errors):
-            close_enough = True
-            print("Detected close enough prediction.")
+                                    , admissible_errors=admissible_errors)
+        if close_enough != -1: #This means it is close enough, by #close_enough errors.
+            # print("Detected close enough prediction.")
             break
 
         if loss.mean() < loss_threshold:
@@ -669,10 +692,10 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
     
     return actual_loc, perc_pred
 
-def prediction_is_close_enough(desired_prediction, actual_prediction, admissible_interval, admissible_errors=1):
+def prediction_is_close_enough(desired_prediction, actual_prediction, admissible_interval, admissible_errors):
     '''
-    Compare [-1, 1] percentage predictions: 
-    desired_prediction either is close to -1, or is close to actual prediction. 
+    Compare [0, 1] percentage predictions: 
+    True -> desired_prediction is either close to 0, or close to actual prediction. 
 
     return True or False
     '''
@@ -686,18 +709,19 @@ def prediction_is_close_enough(desired_prediction, actual_prediction, admissible
     
     # admissible_interval      = 0.1 # admisable interval in [-1, 1] tanh deviation / twice as it would be in percentages [0, 1]
     
-    close_prediction      = np.logical_or(desired_prediction < 0.01\
+    close_prediction      = np.logical_or(desired_prediction < admissible_interval\
                                         , np.abs(desired_prediction - actual_prediction) < admissible_interval)
 
     print("\ndesired_prediction:", np.round(desired_prediction, 2), "\nactual_prediction:", np.round(actual_prediction, 2)\
     , "\nclose_prediction:", close_prediction, "\n") 
 
     print("Not close prediction sum:", np.logical_not(close_prediction), np.logical_not(close_prediction).sum(), admissible_errors, np.logical_not(close_prediction).sum() <= admissible_errors)
-    if np.logical_not(close_prediction).sum() <= admissible_errors:
+    num_errors = np.logical_not(close_prediction).sum()
+    if  num_errors <= admissible_errors:
         #print(f"Prediction  {i+1} is close enough:")
-        return True
+        return num_errors
 
-    return False
+    return -1
 
 
 def interval_desired_target_loss(prediction, desired_target, intervals):
