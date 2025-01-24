@@ -147,6 +147,65 @@ def remove_building_page():
 
 
 # Create locations on facade of the building 
+@app.route('/predict_facade_from_base_points_as_tiles', methods=["POST", "GET"])
+def predict_facade_from_base_points_as_tiles_page():
+    '''   
+    ///receives argumets - data: basePoints, bh, ppf and 
+    http://127.0.0.1:5000/predict_facade_from_base_points_as_tiles
+    or in command line:
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/new_buildings/base_points_example.json "http://127.0.0.1:5000/predict_facade_from_base_points_as_tiles"
+    '''
+    base_points_name = request.args.get('bpn', 'unnamed_points') # base points name #"base_points_example"
+    base_points_path = request.args.get('bph', f'./utils/assets/new_buildings/{base_points_name}.csv')
+
+    try:
+        data  = request.json
+        print("Received data was:\n\t", data)
+        bp_df = pd.DataFrame(data)#.to_dict(orient="records")
+
+        start_time = time.time()
+        #1. Read base points
+        
+        bp  = bp_df.values
+        print("Received base points were:", bp, "\n")
+
+        #Performance logs:
+        total_time = time.time() - start_time
+        print(f"\t prediction time: total - {total_time:.2f}s; " )
+            #  f"per location - {total_time/facade_df.shape[0]:.7f}\n")
+        bh  = int(request.args.get('bh', '50'))   #buiding height
+        ppf = int(request.args.get('ppf', '250')) #points per facade side
+        print(f"Received height was {bh},\n ppf\t {ppf}, \n ")
+
+
+        from utils.geometry_utils import generate_vertical_squares
+
+        n_width = 3 #number of tiles on the thinnest side.
+        n_height = bh#20
+        n_samples = 100
+        points    = bp
+
+        centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples)
+
+        #Draw the computed centers and tile samples in o3d:
+        print(f"The side length of each tile is {side_length}x{side_length}")
+        # draw_facade_centers_and_tiles_in_o3d(points, centers, samples)
+        
+    except:
+        print("Empty JSON sent in the request - Using the Example base points")
+        base_points_name = "base_points_example"
+        base_points_path = request.args.get('bph', f'./utils/assets/new_buildings/{base_points_name}.csv')
+        bp_df            = pd.read_csv(base_points_path, header=None)
+
+    facade_dict = {}
+    response = jsonify(facade_dict)
+    print(response)
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
+
+
+
+# Create locations on facade of the building 
 @app.route('/predict_facade_from_base_points', methods=["POST", "GET"])
 def predict_facade_from_base_points_page():
     '''
@@ -174,11 +233,12 @@ def predict_facade_from_base_points_page():
     #1. Read base points
     
     bp  = bp_df.values
-    print(bp)
+    print("Received base points were:", bp, "\n")
     bh  = int(request.args.get('bh', '50'))   #buiding height
     bs  = int(request.args.get('bs', '32768')) #batch size - default 2**15 - 32768
     ppf = int(request.args.get('ppf', '250')) #points per facade side
     nmt = request.args.get('nmt', 'percentages') #normalization type
+    print(f"Received height was {bh},\n ppf\t {ppf}, \n ")
 
     #2. Predict facade valeus for given inputs
     facade_df = predict_facade_from_base_points(bp, bh, ppf, nmt, bs)
@@ -250,10 +310,23 @@ def test_encoder_on_current_position_page():
 
     trained_encoder, info_dict = load_model_from_info_dict_path(info_dict_path)
     
-    
     test_predictions = []
     locations = test_df[["x", "y", "z", "xh", "yh", "zh"]].values.tolist()
     
+    exact_prediction = True
+    # exact_prediction = False
+    if exact_prediction:
+        locations = curr_loc[["x", "y", "z", "xh", "yh", "zh"]].values
+        print("predictions are NOT smoothened")
+        # xyz  = torch.tensor(curr_loc[["x" , "y", "z"]].values[0])
+        # xyzh = torch.tensor(curr_loc[["xh" , "yh", "zh"]].values[0])
+
+        # _,_, prediction = trained_encoder.predict_from_raw(xyz, xyzh)
+        
+        # test_predictions.append((1+prediction[0].detach().numpy())*.5)
+    else: #Smoothened out prediction
+        #There are 9 locations of the current neighborhood (see curr_neigborhood above)
+        print("predictions are neighborhood smoothened")
     for location in locations:
         
         xyz  = torch.tensor(location[:3])
@@ -280,6 +353,17 @@ def test_encoder_on_current_position_page():
     keys   = test_df[["x", "y", "z", "xh", "yh", "zh"]].values.tolist()[:1]
     #values = [test_predictions.mean(axis=0).tolist()]#.tolist()
     values = [dict(zip(info_dict["non_empty_classes_names"], test_predictions.mean(axis=0).tolist()))]
+
+
+    print("Input:\n\t",curr_loc)
+    percentage_predictions = np.round(100*(prediction.detach().numpy()[0] / 2 + 0.5), 2)
+    predicition_dictionary = dict(zip(info_dict["non_empty_classes_names"], percentage_predictions))
+    print("\nOutput:\n\t",predicition_dictionary)
+
+    semantic_actuals   = [int(s) for s in eval(curr_loc["f_xyz"].values[0])]
+    percentage_actuals = [np.round(100 * (p / sum(semantic_actuals)), 2) for p in semantic_actuals]
+    actuals_dictionary = dict(zip(info_dict["non_empty_classes_names"], percentage_actuals))
+    print("Actual percentages:\n\t", actuals_dictionary, "\n" )
 
     return jsonify([{"camera_coordinates": k, "predictions" : v} for k, v in zip(keys, values)])
 

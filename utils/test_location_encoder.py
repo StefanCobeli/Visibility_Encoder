@@ -132,8 +132,9 @@ def predict_facade_from_base_points(base_points, building_height, points_per_fac
     #Keep only the csv file with the predictions (saved in the test_encoder_on_data)
     # - Remove the csv transformed from the json request:
     os.remove(new_building_path)
+    print(f"removed new facade csv locations to avoid memory surplus:\n\t{new_building_path}")
     facade_df["predictions"] = test_predictions.tolist() # test_df and facade_df might be the save - TODO: consider returning test_df and remove this line
-
+    print()
     # facade_df.to_csv(new_building_path, index_label=False) #Saves index
     # facade_df.to_csv(new_building_path, index=False)       # does not save index - moved to test_encoder_on_data
     if debugging_predictions:

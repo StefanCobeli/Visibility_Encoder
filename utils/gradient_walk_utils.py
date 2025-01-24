@@ -40,11 +40,12 @@ def locations_to_zip(xyz_locations):
     return zip_codes
 
 
+#moved from 1_encoder_experiment_training_density_requirements in November 2024
 def load_model_from_info_dict_path(info_dict_path):
     '''
     Load trained model based on path to info dictionary.
     '''
-    
+    print(f"Loading model as described in:\n\t{info_dict_path}")
     # Initialize NeRFS model with weights of trainedNeRF model
     info_dict       = pd.read_json(info_dict_path).to_dict()[0]
     print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])

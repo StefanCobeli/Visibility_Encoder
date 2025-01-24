@@ -186,3 +186,169 @@ def surface_parametric(a, b, p, c, r, surface_type="circle", debugging=False):
     
 
     return final_point.to(torch.float32)
+
+
+# Experiment generate facedes in rubik cube style tiles.
+# moved from  `1_encoder_experiment_training_density_requirements.ipynb` - 01.21.2025 
+
+def sort_polygon_points(points):
+    """
+    Sort a list of 3D points to ensure they are in a clockwise order 
+    around the polygon in the XY plane.
+
+    Parameters:
+    ----------
+    points : list of [x, y, z]
+        A list of 3D points defining the polygon vertices.
+
+    Returns:
+    -------
+    sorted_points : list of [x, y, z]
+        The input points sorted in clockwise order.
+    """
+    # Compute the centroid of the polygon
+    centroid = np.mean(points, axis=0)
+
+    # Compute angles of each point relative to the centroid in the XY plane
+    angles = [np.arctan2(p[1] - centroid[1], p[0] - centroid[0]) for p in points]
+
+    # Sort points by angle (clockwise order)
+    sorted_indices = np.argsort(angles)
+    sorted_points = [points[i] for i in sorted_indices]
+
+    return sorted_points
+
+def generate_vertical_squares(points, n_width, n_height, n_samples, natural_height=True):
+    """
+    Parameters:
+    ----------
+    points : list of [x, y, z]
+        Four 3D points defining the polygon vertices.
+    n_width : int
+        Number of squares to divide the shortest edge into (horizontal division).
+    n_height : int
+        Number of squares to stack vertically (vertical division).
+    n_samples : int
+        Number of random points to generate inside each square.
+    natural_height : boolean
+        If n_height is to be treated as the actual height of the building, not as how many squares should be stacked up.
+        if natural_height, then n_height shoudd become n_height // square_side
+
+    Returns:
+    -------
+    square_centers : list of [x, y, z]
+        Centers of all generated squares.
+    square_samples : list of lists of [x, y, z]
+        Random points within each square.
+    square_side : float
+        The length of each square's side.
+        
+    Example:
+    --------
+    >>> points = [
+    ...     [0, 0, 0],  # Bottom-left corner
+    ...     [1, 0, 0],  # Bottom-right corner
+    ...     [1, 1, 0],  # Top-right corner
+    ...     [0, 1, 0]   # Top-left corner
+    ... ]
+    # Or example with unordered points - Sorting perforemed using `sort_polygon_points`
+    points = [[1208.93435038,   26.89583837,  471.78952441],
+     [1235.56810426,   26.89584999,  482.85764003],
+     [1227.46644624,   26.89580719,  427.19482581],
+     [1254.10020012,   26.89581881,  438.26294142]
+     ]
+    >>> n_width = 5
+    >>> n_height = 3
+    >>> n_samples = 10
+    >>> centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples)
+    >>> print(centers)
+    >>> print(samples)
+    >>> print(side_length)
+    """
+    def distance(p1, p2):
+        return np.linalg.norm(np.array(p1) - np.array(p2))
+
+    def compute_normal(polygon_points):
+        # Compute the normal vector of the polygon (assume it's planar)
+        v1 = np.array(polygon_points[1]) - np.array(polygon_points[0])
+        v2 = np.array(polygon_points[2]) - np.array(polygon_points[0])
+        normal = np.cross(v1, v2)
+        normed_normal = normal / np.linalg.norm(normal)
+        normed_normal_positive_height = np.array([normed_normal[0],
+                                                np.abs(normed_normal[1]),
+                                                normed_normal[2]])
+        return normed_normal_positive_height
+    
+    print(f"received points:", np.round(points, 2))
+    points = sort_polygon_points(points)
+    print(f"reordered points:", np.round(points, 2))
+    
+    segments = [(points[i], points[(i + 1) % 4]) for i in range(4)]
+    lengths = [distance(p1, p2) for p1, p2 in segments]
+
+    shortest_length = min(lengths)
+    square_side = shortest_length / n_width
+
+    if natural_height:
+        print(f"For the height {n_height}, there will be generated {n_height//square_side} square tiles of size {square_side}.")
+        n_height = int(n_height // square_side)
+
+    # Compute the normal vector of the polygon
+    normal_vector = compute_normal(points)
+
+    square_centers = []
+    square_samples = []
+
+    for (p1, p2), length in zip(segments, lengths):
+        segment_vector = np.array(p2) - np.array(p1)
+        segment_length = np.linalg.norm(segment_vector)
+        unit_vector = segment_vector / segment_length
+        vertical_vector = normal_vector  # Vertical vector is the polygon's normal
+
+        num_squares_along = int((segment_length * 1.1)  // square_side) #Make sure the segment_length is not divisible by square_side, otherwise you get one square missing on the side.
+        
+        for i in range(num_squares_along):
+            for j in range(n_height):
+                # Compute the center in the vertical plane perpendicular to the polygon
+                center = (
+                    np.array(p1) +
+                    (i + 0.5) * square_side * unit_vector +
+                    (j + 0.5) * square_side * vertical_vector
+                )
+                square_centers.append(center)
+
+                # Generate random points within the square
+                random_offsets = np.random.rand(n_samples, 2) - 0.5
+                random_points = (
+                    center +
+                    square_side * (random_offsets[:, 0][:, None] * unit_vector + random_offsets[:, 1][:, None] * vertical_vector)
+                )
+                square_samples.append(random_points.tolist())
+
+    return square_centers, square_samples, square_side
+
+
+def draw_facade_centers_and_tiles_in_o3d(points, centers, samples):
+    import open3d as o3d
+
+    # Draw centers
+    pcd_centers = o3d.geometry.PointCloud()
+    pcd_centers.points = o3d.utility.Vector3dVector(centers)
+    pcd_centers.colors = o3d.utility.Vector3dVector(np.repeat([[0,0,1]], len(centers), axis=0))
+
+
+    # Draw basis / original points
+    pcd_corners = o3d.geometry.PointCloud()
+    pcd_corners.points = o3d.utility.Vector3dVector(points)
+    pcd_corners.colors = o3d.utility.Vector3dVector(np.repeat([[1,0,0]], len(points), axis=0))
+
+    # Draw tile sampled points.
+    pcd_samples = o3d.geometry.PointCloud()
+    pcd_samples.points = o3d.utility.Vector3dVector(np.vstack(samples))
+    np.random.seed(1)
+    n_samples = len(np.vstack(samples)) // len(centers)
+    np_random_tile_colors = np.repeat(np.random.rand(len(centers), 3), n_samples, axis=0)
+    pcd_samples.colors = o3d.utility.Vector3dVector(np_random_tile_colors)
+
+    o3d.visualization.draw_geometries([pcd_centers, pcd_corners])
+    o3d.visualization.draw_geometries([pcd_centers, pcd_corners, pcd_samples])
