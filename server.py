@@ -74,7 +74,6 @@ def query_plane_locations_page():
         print("\t ./utils/assets/query_locations/query_plane_directions.json")
         return jsonify([{"":"Invalid JSON"}])
 
-    
     al_df    = query_locations_on_surface(desired_distribution, surface_basis, surface_type\
        , num_locations=num_locations, search_intervals=si, lt=lt, lrate=lr, max_steps = ms, seed=seed)
     # print(al_df.x.max(axis=0), al_df.x.min(axis=0), al_df.z.max(axis=0), al_df.z.min(axis=0))
@@ -97,9 +96,14 @@ def query_locations_page():
     at = 100  # acceptable factor loss; if loss is at least at * lt then consider the location
     lt = .01 # loss threshold. Don't perform additional steps if the loss is already lt.
     max_steps = 75 #100                    #100
+
     try:
         data                 = request.json
         query_df             = pd.DataFrame(data)
+
+        desired_distribution = query_df["f_xyz"].values[0] 
+        print(f"The received query is:\n\t{desired_distribution}")
+
         desired_distribution = [float(x) for x in query_df["f_xyz"].values[0]]
         num_locations        = int(query_df["num_locations"].values[0])
         #if "seed" in query_df:
