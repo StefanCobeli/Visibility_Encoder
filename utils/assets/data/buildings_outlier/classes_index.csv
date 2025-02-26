@@ -1,0 +1,7 @@
+color,class
+"(255,0,0)",brick,
+"(0,255,0)",concrete,
+"(0,0,255)",marble,
+"(255,255,255)",plaster,
+"(255,255,0)",metal,
+"(0,0,0)",nothing

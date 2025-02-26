@@ -43,16 +43,77 @@ def run_one_epoch_location_encoder(encoder_net, criterion, optimizer, data_loade
     mean_epoch_loss = (current_losses / len(data_loader.dataset))
 
     if return_predictions :
-        return mean_epoch_loss, np.vstack(all_losses), np.vstack(predictions)#,np.array(predictions)
+        return mean_epoch_loss, np.concatenate(all_losses), np.concatenate(predictions)#,np.array(predictions)
     #print(len(data_loader.dataset), return_predictions, predictions)
     return mean_epoch_loss#, current_losses
 
 
-def get_location_visibility_encoder(enc_input_size, num_present_classes, feat_dim=256):
+# class ScaledWeightedMSELoss(torch.nn.Module):
+#     def __init__(self, scale_factors, weights):
+#         super().__init__()
+#         self.scale_factors = scale_factors
+#         self.weights = weights
+
+#     def forward(self, y_pred, y_true):
+#         return torch.mean(self.weights * ((y_pred - y_true) / self.scale_factors) ** 2)
+'''Causes too extreme loss values: e.g. tensor([    0.0225,  1227.7540], dtype=torch.float64)'''
+class ScaledWeightedMSELoss(torch.nn.Module):
+    def __init__(self, scale_factors, weights, epsilon=1e-6, reduction='none'):
+        super().__init__()
+        self.scale_factors = scale_factors + epsilon  # Prevent div by zero
+        self.weights = torch.clamp(weights, min=1e-3, max=10)  # Avoid extreme values
+        self.reduction = reduction
+
+    def forward(self, y_pred, y_true):
+        y_pred = y_pred * .5 + .5
+        y_true = y_true * .5 + .5
+
+        loss = self.weights * ((y_pred - y_true) / self.scale_factors) ** 2
+        # loss = self.weights * ((y_pred - y_true)) ** 2
+        loss_not_nan = loss[~torch.isnan(loss)] # Ignore NaNs
+        if self.reduction == "mean":
+            return torch.mean(loss_not_nan) 
+        if self.reduction == 'none':
+            return loss_not_nan 
+        return loss_not_nan # in any other case of reduction
+        
+    
+def compute_scale_factors_and_weights(Y_train):
+    Y_train = Y_train * .5 + .5
+    scale_factors = torch.std(Y_train, dim=0) + 1e-6
+    weights = 1.0 / (torch.mean(Y_train, dim=0) + 1e-6)
+    print("\npercentage Scaling factor:", scale_factors)
+    print("percentage Class weights:", weights, "\n")
+    return scale_factors, weights
+
+
+class BalancedMSELoss(torch.nn.Module):
+    def __init__(self, targets, epsilon=1e-6, reduction='none'):
+        """
+        targets: Tensor of shape (N, D) representing the true target values
+        epsilon: Small constant to avoid division by zero
+        """
+        super().__init__()
+        # Compute per-dimension inverse frequency-based weights
+        target_var = torch.var(targets, dim=0, unbiased=True)  # Variance per dimension
+        self.weights = 1.0 / (target_var + epsilon)  # Inverse variance weighting
+        self.weights /= self.weights.sum()  # Normalize weights
+        print("BalancedMSELoss\n\tWeights:", self.weights)
+        self.reduction = reduction
+
+    def forward(self, predictions, targets):
+        loss = self.weights * (predictions - targets) ** 2
+        if self.reduction=="none":
+            return loss        
+        return loss.mean()#if any other reduction is passed aside of none.
+
+
+def get_location_visibility_encoder(enc_input_size, num_present_classes, feat_dim=256, output=None):
     '''
     Setup training model: 
         enc_input_size: stands for both the size of the location and of the direction.
         num_present_classes: size of the output layer.
+        output is the entire y_train. If none is provided, then loss will be simpy MSELoss
     returns: encoder_net, criterion, optimizer, scheduler
     '''
     #Hyperparameters:
@@ -63,7 +124,14 @@ def get_location_visibility_encoder(enc_input_size, num_present_classes, feat_di
     #! NeRFS is only used for testing not for training: The surface projection does not need to be trained.
     # encoder_net = network.nerfs.NeRFS(pos_dim=enc_input_size, output_dim=num_present_classes, view_dir_dim=enc_input_size, feat_dim=feat_dim) 
     
-    criterion   = torch.nn.MSELoss(reduction='none')
+    if output is None: #Use simple MSE Loss
+        criterion   = torch.nn.MSELoss(reduction='none')
+    else:
+        criterion = BalancedMSELoss(output, reduction='none')
+    # else: # ScaledWeightedMSELoss produces extreme loss values: e.g. tensor([    0.0225,  1227.7540], dtype=torch.float64)
+    #     scale_factors, weights = compute_scale_factors_and_weights(output)
+    #     criterion = ScaledWeightedMSELoss(scale_factors, weights, reduction='none')
+        
     optimizer   = torch.optim.Adam(encoder_net.parameters(), lr=lr_start, eps=1e-8)#,weight_decay=
     scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
 
@@ -147,7 +215,8 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     if ".json" in file_store:
         vis_df = pd.read_json(file_store)
         if label_split is not None:
-            label_name  = label_split
+            # label_name  = label_split
+            label_name  = "f_xyz"
             label_split = "json"
     else:
         vis_df                                  = pd.read_csv(file_store)
@@ -174,9 +243,10 @@ def process_locations_visibility_data_frame(file_store, norm_params=None, min_pe
     if label_split == ",":
         vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').split(",") if d.isdigit()])
     if label_split == "json":
-        # vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"]
-        vis_df_n["f_xyz"] = vis_df_n[label_name]
-        max_row_value     = vis_df_n[label_name].max()
+        # vis_df_n["f_xyz"] = vis_df_n[label_name]
+        vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(eval)
+        #max_row_value     = vis_df_n[label_name].max() #works, assuming row with [0,..,0,max,0,..0]
+        max_row_value     = sum(vis_df["f_xyz_raw"].iloc[0])
 
     if max_row_value is None:
         #Normalize Labels by the sum of each row. Predictions will be adding up to 1
@@ -282,6 +352,7 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
 
     NY_MESH = True
     # NY_MESH = False
+
     if ".json" in data_path:
         file_store       = data_path #+ f"/{file_name}"
         data_path = "/".join(data_path.split("/")[:-1])
@@ -304,6 +375,7 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
                                 , index_col=False).to_dict(orient="records")
                     }
         except:
+            print("Missing classes_index.csv file!!!")
             storage_folder = "/".join(data_path.split("/")[:-1])
             ins_dict = {c["color"] : c["class"] for c in  \
                     pd.read_csv(storage_folder + "/classes_index.csv"\
@@ -321,8 +393,6 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
 
     if label_name is not None: #If there is a label name other than f_xyz.
         label_split = label_name 
-
-
     #1. Read locations.csv and process data frame with normalized coordinate inputs and labels
     visibility_dataset_df, norm_params, nec = process_locations_visibility_data_frame(file_store\
                                              , min_percentage_per_class=mpc, label_split=label_split, selected_label_indexes=selected_label_indexes )
@@ -348,15 +418,21 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
 
     #2. setup `torch` dataset and loaders
     pos_enc_dim = 10
+    # batch_size=32
+    batch_size=1024
     train_loader, test_loader = get_location_visibility_loaders(processed_vis_loc_df=visibility_dataset_df\
-    , train_set_percentage=tsp, test_size=0.2, batch_size=32, pos_enc_dim=pos_enc_dim, seed=1)
+    , train_set_percentage=tsp, test_size=0.2, batch_size=batch_size, pos_enc_dim=pos_enc_dim, seed=1)
 
     #3. Setup NeRF-like location encoder:
     enc_input_size, num_present_classes          = train_loader.dataset.input_dir.shape[1], train_loader.dataset.output.shape[1]
+    # print(train_loader.dataset.output) #tensor with data_points x labels // can be seen as Y_train in a classical ML approach
 
     #print("Num present classes", num_present_classes)
-    encoder_net, criterion, optimizer, scheduler =  get_location_visibility_encoder(enc_input_size, num_present_classes)
-
+    custom_loss = None
+    if custom_loss:
+        encoder_net, criterion, optimizer, scheduler =  get_location_visibility_encoder(enc_input_size, num_present_classes, output=train_loader.dataset.output)
+    else:
+        encoder_net, criterion, optimizer, scheduler =  get_location_visibility_encoder(enc_input_size, num_present_classes, output=None)
     #4. Training loop
     print(f"Training data percentace {100 * tsp:.2f}% - {int(tsp * len(visibility_dataset_df)*.8):,} samples, for {num_epochs} epochs:")
     training_progress   = tqdm(range(num_epochs))
@@ -378,6 +454,27 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
                                        , test_loader, training_epoch=False, return_predictions=True)
             all_test_losses.append(test_loss[1])   
             test_losses_history.append(test_loss[0])  
+
+            # reportable_metrics = 
+            debug_training = None
+            if debug_training:
+                torch.set_printoptions(sci_mode=False)
+                print("predictions shape:", test_loss[2].shape\
+                , "prediction example:", .5 * test_loss[2][0] + .5\
+                , "\nground truth shape:", test_loader.dataset.output.shape\
+                , "ground truth example:", .5 * test_loader.dataset.output[0] + .5)
+                print(
+                "\nLoss example:"\
+                ,  torch.nn.MSELoss(reduction='none')(\
+                    torch.tensor(.5 * test_loss[2][0] + .5)\
+                    , .5 * test_loader.dataset.output[0] + .5)\
+                , "Total MSE Loss:"\
+                ,   torch.nn.MSELoss(reduction='none')(\
+                    .5 * torch.tensor(test_loss[2]) + .5\
+                    , .5 * test_loader.dataset.output + .5).mean(axis=0)\
+                ,"\nTotal BMSE Optimization Loss:"\
+                , dict(zip(non_empty_classes_names, criterion(torch.tensor(test_loss[2]), test_loader.dataset.output).mean(axis=0)))
+                )
 
         training_progress.set_description(f'Epoch {epoch +1} / {num_epochs}'+
               f'- Training loss {tr_loss[0].mean()**.5:.5f} - test loss {test_loss[0].mean()**.5:.5f}'  )

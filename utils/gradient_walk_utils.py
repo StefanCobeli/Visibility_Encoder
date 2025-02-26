@@ -86,7 +86,8 @@ def choose_model_based_on_query(desired_distribution):
 
         #same model and info_dict as in the #semantics_full case
         # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
-        info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes
+        # info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes # December 2024
+        info_dict_path = "./utils/assets/data/semantics/models/training_info_350.json"
 
         print("\nCustom perception query case found:")
         print(f"Querying for custom perceptions: \n\t{custom_formula_names}\nwith forumulas:\n\t{custom_formula_names}")
@@ -115,7 +116,8 @@ def choose_model_based_on_query(desired_distribution):
         if len(labels) > 0: #semantics_full case
             labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
             # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
-            info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes
+            # info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes # December 2024
+            info_dict_path = "./utils/assets/data/semantics/models/training_info_350.json"
             rectified_distribution = np.zeros_like(semantics_full, dtype=float)  #- 1
             rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
             print("\nFull semantics found:")
@@ -123,7 +125,7 @@ def choose_model_based_on_query(desired_distribution):
             query_labels = semantics_full
 
         #Perception:
-        #3. ["greeness", "openness", "imageability", "encolusre", "walkability", "serenity"]
+        #3. ["greenness", "openness", "imageability", "encolusre", "walkability", "serenity"]
         perceptions          = ["greenness", "openness", "imageability", "enclosure", "walkability", "serenity"]
         labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)
         if len(labels) > 0: #perception case

@@ -13,7 +13,121 @@ from utils.geometry_utils import *
 from utils.scripts.architectures.train_location_encoder import *
 from utils.scripts.architectures.torch_nerf_src import network
 
+semantics_to_colors = {
+    'brick': 'red'
+    ,'concrete':"grey", 'marble':"gold", 'plaster':"purple"
+    , "metal": "forestgreen"
+    ,"building" : "lightcoral" # Building color palette / ##DCDCDC
+    , "water" : "aqua" # water color palette / #c4e2fe
+    , "road" : "lavenderblush" # road color palette / #FFFFFF
+    , "sidewalk" : "lightgoldenrodyellow" # sidewalk color palette / #EBEADF
+    , "surface" : "lawngreen" # surface color palette / #CDDDB6
+    , "tree" : "chartreuse" # Tree color palette / #9DB97F
+    , "sky" : "deepskyblue" # Sky color palette  / #C7CFF4
+    , "miscellaneous" : "violet" # miscelaneous color palette
+}
 
+
+def load_model_from_info_dict_path(info_dict_path):
+    '''
+    Load NeRFS trained model based on info dictionary.
+    '''
+    
+    # Initialize NeRFS model with weights of trainedNeRF model
+    info_dict       = pd.read_json(info_dict_path).to_dict()[0]
+    print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])
+    # return info_dict
+    norm_params     = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
+
+    trained_model_path = info_dict_path.replace("training_info_", "encoder_").replace(".json", ".pt")
+    trained_encoder            = network.nerfs.NeRFS(norm_params=norm_params, surface_type="square", pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
+    trained_encoder.load_state_dict(torch.load(trained_model_path))
+    
+    return trained_encoder, info_dict
+
+def get_hidden_layer_predictions(data_path, trained_model_path, info_dict_path=None, frac=1, query_format=False):
+    '''
+    data_path - path to data file (test data dataframe) - as json file should work
+    trained_model_path - trained nerf
+    info_dict_path - if no path provided tries to match to an info_dict from the same folder.
+    
+    returns model_predictions, model_latent_features
+    
+    frac takes determinstically the first fraction of the data.
+    '''
+    model_folder = "/".join(trained_model_path.split("/")[:-1])
+    
+    test_df = pd.read_json(data_path)
+    test_df = test_df.head(int(frac*test_df.shape[0]))
+    
+    if info_dict_path is None: # try to find info_dict in the same folder as the model
+        try:
+            model_name   = trained_model_path.split("/")[-1]
+            model_version  = model_name.removesuffix(".pt").split("_")[-1]
+            info_dict_path = f"{model_folder}/training_info_{model_version}.json"
+        except:
+            print("There was no training info_dict found for provided model. Please provide separate info_dict_path.")
+            return
+
+    # Initialize NeRFS model with weights of trainedNeRF model
+    info_dict       = pd.read_json(info_dict_path).to_dict()[0]
+    print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])
+    # return info_dict
+    norm_params     = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
+
+    nerf_latent_features = []
+    nerf_predictions     = []
+
+    trained_encoder            = network.nerfs.NeRFS(norm_params=norm_params, surface_type="square", pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
+    trained_encoder.load_state_dict(torch.load(trained_model_path))
+    
+    if "label_name" in info_dict:
+        test_df["f_xyz"] = test_df[info_dict["label_name"]]
+        
+    print("Succesful model intialization and data loading.\nPredicting hidden layers...")
+    #Get hidden layer for each sample in the dataset
+    for i in tqdm(range(test_df.shape[0])):
+        xyz  = torch.tensor(test_df.values[:,:6][i].astype(float)[:3])
+        xyzh = torch.tensor(test_df.values[:,:6][i].astype(float)[3:])
+
+        _, latent_features, prediction = trained_encoder.predict_from_raw(xyz, xyzh, return_latent_features=True)
+
+
+        nerf_predictions.append(prediction.detach().numpy()[0])
+        nerf_latent_features.append(latent_features.detach().numpy())
+    #     break
+
+    nerf_predictions     = np.vstack(nerf_predictions)
+    nerf_latent_features = np.vstack(nerf_latent_features)
+    
+    print("Succesfully inferred hidden layer values for provided test set.")
+    
+    print("\nThe last prediction was:", prediction)
+    print("The non empty classes are:", info_dict["non_empty_classes_names"])
+    
+    #return nerf_predictions, nerf_latent_features, test_df, trained_encoder
+    if query_format:
+        if test_df["f_xyz"].apply(lambda x: type(x)==str).values[0]:
+            test_df["f_xyz_raw"] = test_df["f_xyz"].apply(eval)
+            test_df["f_xyz"]     = test_df["f_xyz_raw"].apply(lambda d: [s/sum(d) for s in d]) 
+        #else:
+        #Assumes test_df["f_xyz"] is already normalized and between -1, 1 / with process_locations_visibility_data_frame already applied
+        test_df["f_xyz"] = test_df["f_xyz"].apply(lambda fs:
+                                                  {k : v for k, v in 
+                                                   zip(info_dict["classes_names"], [(1 + f)/2 for f in fs]) 
+                                                   if k in info_dict["non_empty_classes_names"]})
+        
+        #torch.nn.MSELoss()(desired_percentages, actual_percentages).mean()
+        test_df["residual"]    = 0
+        test_df["steps"]       = 0
+        test_df["start_locs"]  = test_df.apply(lambda r: [r["x"], r["y"], r["z"]], axis=1)
+        test_df["start_views"] = test_df.apply(lambda r: [r["xh"], r["yh"], r["zh"]], axis=1)
+        
+#     [dict(zip(info_dict["non_empty_classes_names"], d["predictions"][-1])) for d in debug_dicts] 
+    
+#     return nerf_predictions, nerf_latent_features, test_df
+    return nerf_predictions, nerf_latent_features, test_df, trained_encoder
+    
 
 
 def test_encoder_on_data(data_path, model_path, model_version, missing_labels=False, batch_size=32, normalized_predictions="log", debugging_predictions=False):
