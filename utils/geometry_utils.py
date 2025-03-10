@@ -236,8 +236,8 @@ def generate_vertical_squares(points, n_width, n_height, n_samples, natural_heig
 
     Returns:
     -------
-    square_centers : list of [x, y, z]
-        Centers of all generated squares.
+    square_centers : list of [x, y, z] - length is multiple of 4 / number of sides.
+        Centers of all generated squares. #ordered based on each side [side1_c1, side1_c2,...side2_c1,...,side4_cn]
     square_samples : list of lists of [x, y, z]
         Random points within each square.
     square_side : float
@@ -299,6 +299,7 @@ def generate_vertical_squares(points, n_width, n_height, n_samples, natural_heig
     square_centers = []
     square_samples = []
 
+    #centers are list with the order [side1_c1, side1_c2,...side2_c1,...,side4_cn]
     for (p1, p2), length in zip(segments, lengths):
         segment_vector = np.array(p2) - np.array(p1)
         segment_length = np.linalg.norm(segment_vector)
