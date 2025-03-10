@@ -1,0 +1,9 @@
+color,class
+"(255,0,0)", building,
+"(0,0,255)", water,
+"(0,255,255)", road ,
+"(255,255,0)", sidewalk,
+"(255,0,255)", surface,
+"(0,255,0)", tree,
+"(0,0,0)", sky,
+"(255,255,255)", miscelaneous

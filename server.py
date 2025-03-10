@@ -150,7 +150,7 @@ def remove_building_page():
     return jsonify([{"removed losses":np.vstack(rm_losses_history).tolist(), "test losses": np.vstack(test_losses_history).tolist()}])
 
 
-# Create locations on facade of the building 
+# Split facade into tiles and display scalar field / random locations within each tile.
 @app.route('/predict_facade_from_base_points_as_tiles', methods=["POST", "GET"])
 def predict_facade_from_base_points_as_tiles_page():
     '''   
@@ -185,14 +185,14 @@ def predict_facade_from_base_points_as_tiles_page():
         from utils.geometry_utils import generate_vertical_squares
 
         n_width = 3 #number of tiles on the thinnest side.
-        n_height = bh#20
+        n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
         n_samples = 100
         points    = bp
 
         centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples)
 
         #Draw the computed centers and tile samples in o3d:
-        print(f"The side length of each tile is {side_length}x{side_length}")
+        print(f"The side length of each tile is {side_length} x{ side_length}")
         # draw_facade_centers_and_tiles_in_o3d(points, centers, samples)
         
     except:
@@ -201,15 +201,22 @@ def predict_facade_from_base_points_as_tiles_page():
         base_points_path = request.args.get('bph', f'./utils/assets/new_buildings/{base_points_name}.csv')
         bp_df            = pd.read_csv(base_points_path, header=None)
 
+
+    #Mimicking the random locations display method below  (predict_facade_from_base_points_page)
     facade_dict = {}
     response = jsonify(facade_dict)
     print(response)
     response.headers.add('Access-Control-Allow-Origin', '*')
+
+    facade_dict = [{"camera_coordinates":[fr["x"],fr["y"],fr["z"],fr["xh"],fr["yh"],fr["zh"]]\
+        , "predictions": fr["predictions"] } for fr in facade_records]
+    response = jsonify(facade_dict)
+
     return response
 
 
 
-# Create locations on facade of the building 
+# Create locations on facade of the building - random points on facade. Not ordered tiles.
 @app.route('/predict_facade_from_base_points', methods=["POST", "GET"])
 def predict_facade_from_base_points_page():
     '''
@@ -308,9 +315,9 @@ def test_encoder_on_current_position_page():
     # nmt = request.args.get('nmt', 'percentages')       #normalization type
     # bs  = int(request.args.get('bs', '32768')) #batch size - default 2**15 - 32768
     # test_path = f"./utils/assets/test_data/locations_{test_name}.csv"
-    
-    
-    info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"
+    # info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json" # December 2024 path
+
+    info_dict_path = "./utils/assets/data/semantics/models/training_info_1000.json"
 
     trained_encoder, info_dict = load_model_from_info_dict_path(info_dict_path)
     

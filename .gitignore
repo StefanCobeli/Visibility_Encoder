@@ -7,3 +7,5 @@ Visibility_Analytics.ipynb
 
 utils/assets/query_locations/query_perception.json
 utils/assets/query_locations/queried_locations_plane.csv
+
+./utils/assets/data/*

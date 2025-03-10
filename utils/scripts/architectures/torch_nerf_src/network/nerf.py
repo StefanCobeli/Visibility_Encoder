@@ -63,6 +63,7 @@ class NeRF(nn.Module):
         self.fc_3 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_4 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_5 = nn.Linear(self._feat_dim + self._pos_dim, self._feat_dim)
+        # self.fc_5 = nn.Linear(self._feat_dim + self._pos_dim + self._view_dir_dim, self._feat_dim) #Intruduce view dir earlier in the model
         self.fc_6 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_7 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_8 = nn.Linear(self._feat_dim, self._feat_dim + density_dim)
@@ -100,6 +101,7 @@ class NeRF(nn.Module):
         x = self.relu_actvn(self.fc_4(x))
 
         x = torch.cat([pos, x], dim=-1)
+        # x = torch.cat([pos, x, view_dir], dim=-1)#Intruduce view dir earlier in the model
 
         x = self.relu_actvn(self.fc_5(x))
         x = self.relu_actvn(self.fc_6(x))
@@ -195,6 +197,7 @@ class NeRF(nn.Module):
         x = self.relu_actvn(self.fc_4(x))
 
         x = torch.cat([pos, x], dim=-1)
+        # x = torch.cat([pos, x, view_dir], dim=-1) #Intruduce view dir earlier in the model
 
         x = self.relu_actvn(self.fc_5(x))
         x = self.relu_actvn(self.fc_6(x))

@@ -418,8 +418,10 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
 
     #2. setup `torch` dataset and loaders
     pos_enc_dim = 10
+    # batch_size=16
+    batch_size=8
     # batch_size=32
-    batch_size=1024
+    # batch_size=1024
     train_loader, test_loader = get_location_visibility_loaders(processed_vis_loc_df=visibility_dataset_df\
     , train_set_percentage=tsp, test_size=0.2, batch_size=batch_size, pos_enc_dim=pos_enc_dim, seed=1)
 
@@ -509,6 +511,7 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
                   , "num_epochs":num_epochs\
                   , "pos_enc_dim" : pos_enc_dim
                   , "tsp":tsp\
+                  , "batch_size": batch_size\
                   , "label_name": "f_xyz" if label_name is None else label_name\
                   , "enc_input_size":enc_input_size\
                   , "num_present_classes":num_present_classes\
