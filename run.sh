@@ -41,7 +41,7 @@ cd $path_to_interface
 if [ "$path_to_interface" = "0" ]; then
     export path_to_interface="./"
     echo "Clonig repsitory to: $path_to_interface"
-    echo "git clone https://github.com/rbv3/visibility-data-generator.git $path_to_interface"
+    echo "git clone https://github.com/StefanCobeli/visibility-data-generator.git $path_to_interface"
 else
     echo "Pulling new git commits."
     git pull
