@@ -184,17 +184,19 @@ def predict_facade_from_base_points_as_tiles_page():
 
         from utils.geometry_utils import generate_vertical_squares
 
-        n_width = 3 #number of tiles on the thinnest side.
+        n_width = 10#15 #number of tiles on the thinnest side.
         n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
-        n_samples = 100
+        n_samples = 100 #sampels per tile
         points    = bp
 
-        centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples)
-
-        #Draw the computed centers and tile samples in o3d:
-        print(f"The side length of each tile is {side_length} x{ side_length}")
-        # draw_facade_centers_and_tiles_in_o3d(points, centers, samples)
+        #centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples) #used in get_facade_predictions_as_tiles
+        info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
         
+        from utils.test_location_encoder import get_facade_predictions_as_tiles
+        facade_dict = get_facade_predictions_as_tiles(points, n_height, info_dict_path, n_width, n_samples)
+
+        print("predicted dict keys: ", list(facade_dict.keys()))
+
     except:
         print("Empty JSON sent in the request - Using the Example base points")
         base_points_name = "base_points_example"
@@ -203,14 +205,33 @@ def predict_facade_from_base_points_as_tiles_page():
 
 
     #Mimicking the random locations display method below  (predict_facade_from_base_points_page)
-    facade_dict = {}
-    response = jsonify(facade_dict)
-    print(response)
-    response.headers.add('Access-Control-Allow-Origin', '*')
+    # facade_dict = {}
+    # ['building', 'water', 'road ', 'sidewalk', 'surface', 'tree', 'sky', 'miscellaneous']
+    #Which prediction should be the first column. By default is 0
+    # first_prediction_id = 0 #Buildings
+    # first_prediction_id = 1 #Water
+    # first_prediction_id = 2 #Road
+    # first_prediction_id = 3 #sidewalk
+    # first_prediction_id = 4 #surface
+    first_prediction_id = 5 #Tree
+    # first_prediction_id = 6 #Sky
+    # first_prediction_id = 7 #miscellaneous
+    for fd in facade_dict:
+        p1 = fd["predictions"][first_prediction_id]
+        pb = fd["predictions"][0]
+        fd["predictions"][first_prediction_id] = pb
+        fd["predictions"][0] = p1
+    
+    ##Normalize predictions to maximum of the predicted class:
 
-    facade_dict = [{"camera_coordinates":[fr["x"],fr["y"],fr["z"],fr["xh"],fr["yh"],fr["zh"]]\
-        , "predictions": fr["predictions"] } for fr in facade_records]
+
     response = jsonify(facade_dict)
+    print("Jsonified response:", response)
+    # response.headers.add('Access-Control-Allow-Origin', '*')
+
+    # facade_dict = [{"camera_coordinates":[fr["x"],fr["y"],fr["z"],fr["xh"],fr["yh"],fr["zh"]]\
+    #     , "predictions": fr["predictions"] } for fr in facade_records]
+    # response = jsonify(facade_dict)
 
     return response
 
@@ -267,7 +288,7 @@ def predict_facade_from_base_points_page():
     facade_dict = [{"camera_coordinates":[fr["x"],fr["y"],fr["z"],fr["xh"],fr["yh"],fr["zh"]]\
         , "predictions": fr["predictions"] } for fr in facade_records]
     response = jsonify(facade_dict)
-    print(response)
+    print("Jsonified response:", response)
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 

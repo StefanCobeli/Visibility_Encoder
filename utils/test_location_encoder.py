@@ -195,6 +195,107 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
 
     return mean_loss, all_losses, test_predictions, test_df, info_dict
 
+# Moved from 2_Buildings_to_Exterior_Use_Case on 03.10.2025
+def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path, n_width = 5, n_samples = 50):
+    '''n_width - tiles per smallest side
+    n_samples - sampels per tile
+    '''
+    #0. Load model
+    from utils.gradient_walk_utils import load_model_from_info_dict_path
+    # info_dict_path = "./utils/assets/data/semantics/models/training_info_bs_1024_1000.json"
+    #info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
+    trained_encoder, info_dict = load_model_from_info_dict_path(info_dict_path)
+    present_classes = info_dict["non_empty_classes_names"]
+
+    #2. Builiding tiles
+    from utils.geometry_utils import generate_vertical_squares
+    from utils.geometry_utils import sort_polygon_points, compute_perpendicular_orientation
+
+    # n_width = 5; n_samples = 50#50
+    # n_height = 116; #points = [[2244.487116618618, -0.10353878972804864, 1112.2862697008927], [2279.1700691989004, -1.347170397506389, 1116.533378041281], [2251.2898400509403, 3.3851716251081143, 1057.75508162751], [2285.9727926312225, 2.141540017329774, 1062.0021899678982]]
+    n_height = building_height
+    points   = base_points
+
+    centers, samples, side_length, side_ids = generate_vertical_squares(points, n_width, n_height, n_samples)
+    sorted_base_points            = sort_polygon_points(points)
+    #Draw the computed centers and tile samples in o3d:
+    print(f"The side length of each tile is {side_length} x{ side_length}")
+    # draw_facade_centers_and_tiles_in_o3d(points, centers, samples)            
+
+    #3. Initialize facade_dict to be passed by server.py
+    # camera_coordinates : [[x1,x2,...], [y1,y2,...], ..., [zh1,zh2,...]]
+    #predictions: [p1,p2,...]
+    #building: [b1,b2,...]; tree: [] ...
+    # facade_dict={"camera_coordinates": [[],[],[],[],[],[]], "predictions":[]} 
+    # facade_dict.update({s:[] for s in info_dict["non_empty_classes_names"]})
+    #3. Initialize facade_dict (facade_dicts_list) to be passed by server.py
+    # camera_coordinates : [x,y,z,xh,yh,zh], predictions:[l1,l2,...]
+    facade_dicts_list = []
+
+    #Loop logs
+    from tqdm.notebook import tqdm
+    import numpy as np
+    np.random.seed(1)
+    prediction_dicts = []
+    print("predicting from raw xyz coordinates ")
+
+    #4. Iterate through tiles / centers
+    import torch
+    for i, c in tqdm(enumerate(centers), total=len(centers)):
+
+        #i. Get side orientation given base points:
+        #centers are list with the order [side1_c1, side1_c2,...side2_c1,...,side4_cn] - see generate_vertical_squares in geometry_utils.py
+        centers_per_side = len(centers) // 4
+        tile_side_id     = side_ids[i] #i // centers_per_side #index div centers on a side
+        bp1 = sorted_base_points[tile_side_id]
+        bp2 = sorted_base_points[tile_side_id + 1] if tile_side_id < 3 else 0
+        xyzh_normal      = compute_perpendicular_orientation(bp1, bp2)
+
+        prediction_dicts.append([])
+
+        #For each tile / center predict all locations
+        # print(f"{i}/{len(centers)}: iterating through center")
+        for j, xyz_sample in enumerate(samples[i]):
+
+            xyz  = torch.tensor(xyz_sample) #samples[i][j])
+            #xyzh = torch.tensor(np.random.randint(0, 180, (3, ))) # to be replaced using perpendicular direction
+            xyzh = torch.tensor(xyzh_normal)
+
+            #xyzh = compute_perpendicular_orientation()
+
+            _,_, prediction = trained_encoder.predict_from_raw(xyz, xyzh) #predictions are in tanh (-1, 1)
+
+            percentage_predictions = prediction.detach().numpy()[0] / 2 + 0.5
+            predicition_dictionary = dict(zip(present_classes, percentage_predictions.tolist()))
+            prediction_dicts[-1].append(predicition_dictionary)
+
+            #populate facade_dict to be passed by server.py
+            camera_coordinates = np.hstack([xyz.detach(), xyzh.detach()]).round(5).tolist()
+            facade_dict = {"camera_coordinates":camera_coordinates, "predictions":percentage_predictions.round(5).tolist()}
+            facade_dicts_list.append(facade_dict)
+            # for i in range(6):
+            #     facade_dict["camera_coordinates"][i].append(float(camera_coordinates[i]))
+            # facade_dict["predictions"].append(float(prediction.detach().numpy()[0][-2]))#sky label index is -2
+            # for i, s in enumerate(present_classes):
+            #     facade_dict[s].append(float(percentage_predictions[i]))
+
+    ##Normalize predictions to maximum of the predicted class:
+    predictions_per_class = np.vstack([facade_dicts_list[i]["predictions"] for i in range(len(facade_dicts_list))])
+    max_per_class = predictions_per_class.max(axis=0)
+    
+    # print("Maximums per class are:", max_per_class)
+    # print("facade dict example:", facade_dicts_list[0])
+    # print([p/max_per_class[i] for i,p in enumerate(facade_dicts_list[0]["predictions"])])
+    for fd in facade_dicts_list:
+        fd["predictions"] = [np.round(p / max_per_class[i], 5) for i,p in enumerate(fd["predictions"])]
+
+    return facade_dicts_list# facade_dict
+
+
+# info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
+# n_height = 20; points = [[2244.487116618618, -0.10353878972804864, 1112.2862697008927], [2279.1700691989004, -1.347170397506389, 1116.533378041281], [2251.2898400509403, 3.3851716251081143, 1057.75508162751], [2285.9727926312225, 2.141540017329774, 1062.0021899678982]]
+   
+
 
 def predict_facade_from_base_points(base_points, building_height, points_per_facade_face=100, normalized_predictions="log", batch_size=2**15, debugging_predictions=False):
     '''
@@ -355,3 +456,28 @@ def get_pcd_with_color_intensity(xyz, normalized_intensities, color_pallete=sns.
     pcd_intensity    = get_o3d_pcd_from_coordinates(xyz, intensity_colors)
     
     return pcd_intensity
+
+
+'''Moved from Urban Perception Metrics Analysis.ipynb to test_location_encoder.py - March 17th 2025'''
+def formula_and_dict_to_perception(formula_expression, f_xyz_semantics_dict):
+    """
+        Parse perception string formulas to value.
+        Replace each semantic string in the formula_expression with it's value in f_xyz_semantics_dict
+        Return the value of the evaluated formula.
+    """
+    form_literals = formula_expression.split(" ")
+    for i in range(len(form_literals)):
+        literal = form_literals[i] #on of the sematics
+        if literal in f_xyz_semantics_dict:
+            form_literals[i] = str(f_xyz_semantics_dict[literal])
+    
+    numerical_formula = " ".join(form_literals)
+    try:
+        index_value = eval(numerical_formula)
+    except:#Division by 0
+        index_value = 0
+    return index_value #eval(numerical_formula)
+    #print("Semantics: ", f_xyz_semantics_dict)
+    #print("Semantics formula: ", formula_expression)
+    #print("Numerical formula: ", numerical_formula)
+    #print("Evaluated formula: ", eval(numerical_formula))

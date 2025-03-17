@@ -1,0 +1,27 @@
+,0
+classes_names,"['brick', 'concrete', 'marble', 'plaster', 'metal', 'nothing']"
+mpc,
+non_empty_classes_names,"['brick', 'concrete', 'marble', 'plaster', 'metal']"
+train_size,279
+test_size,6996
+num_epochs,2
+pos_enc_dim,10
+tsp,0.01
+batch_size,8
+label_name,f_xyz
+enc_input_size,60
+num_present_classes,5
+xyz_centroid,[1408.08523156  112.10726701 1067.8832733 ]
+xyz_max-min,3010.7
+xyzh_centroid,[ 0.02204403 -0.89817896  0.        ]
+xyzh_max-min,360.0
+criterion,MSELoss()
+training_time_in_seconds,1
+final_training_loss,1.0046528700004769
+final_test_loss,1.0151129690219907
+training_losses_summary,"[[1.01731679 0.91971624 0.93191863 1.13372608 1.14517602]
+ [0.99120472 0.88715038 0.91625795 1.113648   1.11500331]]"
+test_losses_summary,[[0.98803754 0.90410885 0.93382407 1.1274787  1.12211567]]
+training_losses_history,"[[1.01731679 0.91971624 0.93191863 1.13372608 1.14517602]
+ [0.99120472 0.88715038 0.91625795 1.113648   1.11500331]]"
+test_losses_history,[[0.98803754 0.90410885 0.93382407 1.1274787  1.12211567]]

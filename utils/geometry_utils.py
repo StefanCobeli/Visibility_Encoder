@@ -216,7 +216,51 @@ def sort_polygon_points(points):
     sorted_indices = np.argsort(angles)
     sorted_points = [points[i] for i in sorted_indices]
 
-    return sorted_points
+    return sorted_points[::-1]
+
+
+# Moved from 2_Buildings_to_Exterior_Use_Case and 1_encoder_experiment_training_density_requirements - 03.10.2025
+from scipy.spatial.transform import Rotation as R
+def compute_perpendicular_orientation(p1, p2):
+    # Convert to NumPy arrays
+    p1 = np.array(p1)
+    p2 = np.array(p2)
+
+    # Compute direction vector (p1 -> p2)
+    direction = p1 - p2 + np.ones(3) * 1e-4
+#     print(p1, p2)
+    direction /= np.linalg.norm(direction)  # Normalize
+
+    # Choose a reference up vector (default is [0,1,0])
+    world_up = np.array([0, 1, 0])
+
+    # Handle collinearity by switching to another vector if needed
+    if abs(np.dot(direction, world_up)) > 0.99:  # Almost parallel
+        world_up = np.array([1, 0, 0])
+
+    # Compute a perpendicular right vector
+    right = np.cross(world_up, direction)
+    right /= np.linalg.norm(right)  # Normalize
+
+    # Compute a valid up vector to maintain a proper coordinate system
+    up = np.cross(direction, right)
+    up /= np.linalg.norm(up)  # Normalize
+
+    # Construct rotation matrix (basis: right, up, direction)
+    rotation_matrix = np.column_stack((right, up, direction))
+    
+
+    # Apply a 90-degree rotation around X-axis to match Three.js
+    correction_matrix = R.from_euler('y', 90, degrees=True).as_matrix()
+#     correction_matrix = R.from_euler('x', -90, degrees=True).as_matrix()
+    corrected_matrix = correction_matrix @ rotation_matrix  # Adjust frame
+
+    # Convert to Euler angles (YXZ convention)
+    euler_angles = R.from_matrix(corrected_matrix).as_euler('yxz', degrees=True)
+    euler_angles = euler_angles[[1, 0, 2]]
+
+#     return euler_angles#
+    return np.round(euler_angles, 5 )
 
 def generate_vertical_squares(points, n_width, n_height, n_samples, natural_height=True):
     """
@@ -272,6 +316,7 @@ def generate_vertical_squares(points, n_width, n_height, n_samples, natural_heig
         # Compute the normal vector of the polygon (assume it's planar)
         v1 = np.array(polygon_points[1]) - np.array(polygon_points[0])
         v2 = np.array(polygon_points[2]) - np.array(polygon_points[0])
+        # normal = np.cross(v2, v1)#
         normal = np.cross(v1, v2)
         normed_normal = normal / np.linalg.norm(normal)
         normed_normal_positive_height = np.array([normed_normal[0],
@@ -279,9 +324,9 @@ def generate_vertical_squares(points, n_width, n_height, n_samples, natural_heig
                                                 normed_normal[2]])
         return normed_normal_positive_height
     
-    print(f"received points:", np.round(points, 2))
+    # print(f"received points:", np.round(points, 2))
     points = sort_polygon_points(points)
-    print(f"reordered points:", np.round(points, 2))
+    # print(f"reordered points:", np.round(points, 2))
     
     segments = [(points[i], points[(i + 1) % 4]) for i in range(4)]
     lengths = [distance(p1, p2) for p1, p2 in segments]
@@ -291,25 +336,27 @@ def generate_vertical_squares(points, n_width, n_height, n_samples, natural_heig
 
     if natural_height:
         print(f"For the height {n_height}, there will be generated {n_height//square_side} square tiles of size {square_side}.")
-        n_height = int(n_height // square_side)
+        n_height = int(n_height // square_side) + 1
 
     # Compute the normal vector of the polygon
     normal_vector = compute_normal(points)
 
-    square_centers = []
-    square_samples = []
+    square_centers = [] # list of tile centers
+    square_samples = [] # list of lists for each center we have n_samples samples
+    side_ids       = [] # which one of the 4 sides does each center belong to 
 
     #centers are list with the order [side1_c1, side1_c2,...side2_c1,...,side4_cn]
-    for (p1, p2), length in zip(segments, lengths):
-        segment_vector = np.array(p2) - np.array(p1)
-        segment_length = np.linalg.norm(segment_vector)
-        unit_vector = segment_vector / segment_length
+    for (sid, ((p1, p2), length)) in enumerate(zip(segments, lengths)):
+        segment_vector  = np.array(p2) - np.array(p1)
+        segment_length  = np.linalg.norm(segment_vector)
+        unit_vector     = segment_vector / segment_length
         vertical_vector = normal_vector  # Vertical vector is the polygon's normal
 
         num_squares_along = int((segment_length * 1.1)  // square_side) #Make sure the segment_length is not divisible by square_side, otherwise you get one square missing on the side.
         
         for i in range(num_squares_along):
             for j in range(n_height):
+                side_ids.append(sid)
                 # Compute the center in the vertical plane perpendicular to the polygon
                 center = (
                     np.array(p1) +
@@ -326,7 +373,7 @@ def generate_vertical_squares(points, n_width, n_height, n_samples, natural_heig
                 )
                 square_samples.append(random_points.tolist())
 
-    return square_centers, square_samples, square_side
+    return square_centers, square_samples, square_side, side_ids
 
 
 def draw_facade_centers_and_tiles_in_o3d(points, centers, samples):

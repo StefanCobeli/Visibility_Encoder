@@ -554,82 +554,125 @@ def train_model_on_data(data_path, num_epochs=200, tsp=1, mpc = None, separate_t
 
 
 
+###
+
+'''Moved from 1_Training_and_View_query_use_case to ./utils/scripts/architectures/train_location_encoder.py on Mar 17th 2025'''
+def train_2d_projectors_and_clusteres(test_data_path, trained_model_path, projectors, clusterers, frac=1):
+    '''
+    Computing latent space, hidden feature clustering and 2d projections
+        To dos in the full training function:
+            train encoder model
+            train and save as PKL: PCA, UMAP, GM, AGG, DBSCAN - num clusters (n and maybe 2n) - create folder for projectors.
+            generate json with all these fields.
+    
+    '''
+    #1. Get latent space
+    nerf_predictions, nerf_latent_features, test_df, trained_encoder = \
+        get_hidden_layer_predictions(test_data_path, trained_model_path, info_dict_path=None, frac=frac, query_format=True)#[2]
+    
+    # 2. Perform all projections:
+    for projector in projectors:
+        start_time = time()
+        projector, projected_results_global = project_data_on_2d(global_data = nerf_latent_features, projector=projector, query_data=None)
+        projector_name                      = projector.__class__.__name__
+        projector_path                      = trained_model_path.replace("/encoder_", f"/{projector_name}_").replace(".pt", ".pkl")
+        joblib.dump(projector, projector_path) 
+        test_df[projector_name]             = projected_results_global.tolist()
+        print(f"{projector_name} projection took {time() -  start_time:.2f}s")
+        #print("Example projection: ", projected_results_global[0],"\n")
+    
+    # 3. Perform all clustering methods & zip assignment
+    X               = nerf_latent_features
+    for clusterer_name in clusterers:
+        clusterer               = clusterers[clusterer_name]
+        labels                  = clusterer.fit_predict(X)
+        test_df[clusterer_name] = labels
+        clusterer_path          = trained_model_path.replace("/encoder_", f"/{clusterer_name}_").replace(".pt", ".pkl")
+        joblib.dump(clusterer, clusterer_path) 
+        print(f"{clusterer_name} clustering took {time() -  start_time:.2f}s")
+    
+    test_df["zip"]      = locations_to_zip(test_df[["x", "y", "z"]].values.tolist()) #Same application method as in `gradient_walk_utils.py`
+    location_types      = ["zip"] + list(clusterers.keys())
+    test_df["clusters"] = test_df.apply(lambda r: {lid : r[lid] for lid in location_types}, axis=1)
+    
+    return test_df.drop(location_types, axis=1)
+
+
+
+
+# from utils.scripts.architectures.train_location_encoder import train_model_on_data
+from sklearn.mixture import GaussianMixture
+from sklearn.cluster import AgglomerativeClustering, DBSCAN
+from sklearn.decomposition import PCA
+# import matplotlib.pyplot as plt
+import umap
+# import numpy as np
+# import pandas as pd
+from time import time
+import joblib
+from utils.gradient_walk_utils import project_data_on_2d, locations_to_zip
+from utils.test_location_encoder import get_hidden_layer_predictions#, load_model_from_info_dict_path
+'''Moved from 1_Training_and_View_query_use_case to ./utils/scripts/architectures/train_location_encoder.py on Mar 17th 2025'''
+def train_model_and_genrate_latent_space_projections(data_path, ne, sli, frac):
+    '''
+    input: 
+        train (& test) data paths
+        num_epochs
+        sli : selected label indexes
+        
+    returns: jsons to be used in the interface
+    '''
+
+    #1. Train NeRF for ne epochs
+    train_data_path = f"{data_path}/train.json"
+    model_name      = f"encoder_{ne}.pt"
+    encoder_net, tr_losses_history, test_losses_history, vdf \
+    = train_model_on_data(data_path=train_data_path, num_epochs=ne, tsp=frac, selected_label_indexes=sli, model_name=model_name)
+
+    # 2. train and save as PKL: PCA, UMAP, GM, AGG, DBSCAN - num clusters (n and maybe 2n) - create folder for projectors.
+    test_data_path      = f"{data_path}/test.json"
+    trained_model_path  = train_data_path.replace("train.json", f"models/{model_name}")
+    projectors          = [PCA(n_components=2), umap.UMAP(n_components=2, n_neighbors=15)]
+    clusterers         = {f"GM-{len(sli)}": GaussianMixture(n_components=len(sli), covariance_type='full', random_state=42),
+                        f"AGG-{2*len(sli)}": AgglomerativeClustering(n_clusters=2*len(sli), linkage='ward'),
+                        "DBSCAN": DBSCAN(eps=0.5, min_samples=max(5, vdf.shape[0]//100))
+                       }
+    test_as_query_df = train_2d_projectors_and_clusteres(test_data_path, trained_model_path, projectors, clusterers, frac=frac)
+    
+    #3. Generate jsons with query fields. If semantics case generate also perceptions json.
+    test_json_path = trained_model_path[:trained_model_path.index("models/")] + "test_set_as_query.json"
+    test_as_query_df.to_json(test_json_path, indent=4, orient="records")
+    np.random.seed(1)
+    test_as_query_semantics_df.sample(15).to_json(test_json_path.replace("test_set_as_query", "small_query"), indent=4, orient="records")
+    print()
+    print(", ". join([p.__class__.__name__ for p in projectors] + ["zip"] + list(clusterers.keys())\
+                    ), f" test set as query, projectors and clusterers saved at: \n\t{test_json_path}")
+
+    #3.b In semantics case save also a perception json
+    if "tree" in test_as_query_df.f_xyz.values[0]: #Check if it is the semantics prediction case and generate perceptions:
+        test_as_query_df_semantics = test_as_query_df.copy()
+        perc_def = pd.read_json('./utils/assets/data/perception_metrics/predefinedPerceptions.json')
+        predefined_formulas_dict = {p: perc_def[p].values[0]["expression"] for p in perc_def}
+        from utils.test_location_encoder import formula_and_dict_to_perception
+        
+        test_as_query_df["f_xyz"] = test_as_query_df["f_xyz"].apply(lambda f_xyz:\
+                {p: formula_and_dict_to_perception(predefined_formulas_dict[p], f_xyz) for p in predefined_formulas_dict})
+         
+        test_json_path = trained_model_path[:trained_model_path.index("models/")] + "test_set_perception_as_query.json"
+        test_as_query_df.to_json(test_json_path, indent=4, orient="records")
+        np.random.seed(1)
+        test_as_query_semantics_df.sample(15).to_json(test_json_path.replace("test_set_perception_as_query", "small_query_perception"), indent=4, orient="records")
+
+        print(", ". join([p.__class__.__name__ for p in projectors] + ["zip"] + list(clusterers.keys())\
+                        ), f" perceptions test set as query, projectors and clusterers saved at: \n\t{test_json_path}")
+
+        return (test_as_query_df_semantics, test_as_query_df), test_losses_history#semantics, perceptions dfs
+    
+    return (test_as_query_df, None), test_losses_history#buildings df, None - replicate perceptions return above
 
 
 
 ############################
-# Potential change in label scaling:
-######!!!!!!!!!!!!!!!!NEVER USED
-def process_locations_visibility_data_frame_with_labels(file_store, norm_params=None, min_percentage_per_class=None, label_split=",", missing_labels=False, selected_label_indexes=None):
-    '''
-    Process locations.csv file from file_store. 
-    Table expected columns:
-        - x,y,z,xh,yh,zh,f_xyz
-    Normalize coordinates and only consider non empty columns as labels.
-    min_percentage_per_class - minimum percentage of a class to not be considered empty.
-    Returns:
-    processed_data_frame and indexes of non empty labels
-    normalization_paramerers - (xyz_mean, xyz_dev, xyzh_mean, xyzh_dev)
-    non_empty_classes        - array with true, false entries based on which f_xyz was kept.
-    '''
-    
-    
-    if ".json" in file_store:
-        vis_df = pd.read_json(file_store)
-        label_split = "json"
-    else:
-        vis_df                        = pd.read_csv(file_store)
-    
-    if norm_params is None:
-        vis_df_n, xyz_mean, xyz_dev   = normalize_visibility_dataframe(vis_df, ["x", "y", "z"])
-        vis_df_n, xyzh_mean, xyzh_dev = normalize_visibility_dataframe(vis_df_n, ["xh", "yh", "zh"])
-        norm_params = (xyz_mean, xyz_dev, xyzh_mean, xyzh_dev)
-    else:
-        xyz_mean, xyz_dev, xyzh_mean, xyzh_dev, label_mean, label_dev = norm_params
-        vis_df_n, _, _  = normalize_visibility_dataframe(vis_df, ["x", "y", "z"], train_mean_dev=(xyz_mean, xyz_dev))
-        vis_df_n, _, _  = normalize_visibility_dataframe(vis_df_n, ["xh", "yh", "zh"], train_mean_dev=(xyzh_mean, xyzh_dev))
-    
-    if missing_labels:
-        return vis_df_n, norm_params, None
-    
-    if label_split is None:
-        vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').replace("\n", "").split(" ") if d.isdigit()])
-    if label_split == ",":
-        vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').split(",") if d.isdigit()])
-    if label_split == "json":
-        vis_df_n["f_xyz_raw"] = vis_df_n["f_xyz"]
-        
-    #Normalize Labels by the sum of each row. Predictions will be adding up to 1
-    max_row_value                      = sum(vis_df["f_xyz_raw"].iloc[0])
-
-    # Filter labels either by index or by occurence
-    if selected_label_indexes is None:
-        #a. Filter down to only labels that appear:
-        if min_percentage_per_class is None: #all indexes are considered selected indexes
-            selected_label_indexes = np.arange(len(vis_df_n["f_xyz_raw"].iloc[0]))
-            non_empty_classes      = np.ones_like(selected_label_indexes).astype(bool)
-        else:
-            minimum_occurances                 = min_percentage_per_class * max_row_value * vis_df_n.shape[0]
-            indvidual_class_occurences         = np.sum(np.vstack((vis_df_n["f_xyz_raw"].values)), axis=0)
-            non_empty_classes                  = indvidual_class_occurences > minimum_occurances
-    else:
-        #b. Filter by selected indexes.
-        non_empty_classes = np.in1d(np.arange(len(vis_df_n["f_xyz_raw"].iloc[0])), selected_label_indexes)
-
-    #Keep only labels satisfying condition (occurences or selection)
-    vis_df_n["f_xyz"]     = vis_df["f_xyz_raw"].apply(lambda d: \
-                                             [p for (p, e) in zip(d, non_empty_classes) if e])
-    #Normalize appearances:
-    #vis_df_n["f_xyz"]     = vis_df["f_xyz"].apply(lambda d: [(2 * x) / max_row_value - 1 for x in d]) 
-    #print(vis_df_n["f_xyz"])
-    train_mean_dev = None if len(norm_params) == 4 else (label_mean, label_dev)
-    vis_df_n, label_mean, label_dev = normalize_visibility_labels(vis_df_n, train_mean_dev=train_mean_dev)
-    norm_params = norm_params + (label_mean, label_dev)
-    
-    #print(vis_df_n["f_xyz"])
-    return vis_df_n, norm_params, non_empty_classes
-
-
 
 def normalize_visibility_labels(vis_df, train_mean_dev=None):
     '''
@@ -658,56 +701,3 @@ def normalize_visibility_labels(vis_df, train_mean_dev=None):
     
     return vis_df, label_mean, label_dev
 
-
-################################
-
-def process_locations_visibility_data_frame_DEPRECARED(file_store, min_percentage_per_class=.1, label_split=None, missing_labels=False, selected_label_indexes=None):
-    '''
-    Process locations.csv file from file_store. 
-    Table expected columns:
-        - x,y,z,xh,yh,zh,f_xyz
-    Normalize coordinates and only consider non empty columns as labels.
-    min_percentage_per_class - minimum percentage of a class to not be considered empty.
-    Returns:
-    processed_data_frame and indexes of non empty labels
-    '''
-    
-    visibility_dataset_df = pd.read_csv(file_store)#, index_col=0)
-    
-    #predicted_zooms = len(eval(visibility_dataset_df["f_xyz"].values[0])) - 1#.shape
-
-    #Normalize xyz coordinates - substract mean and divide by max
-    visibility_dataset_df[["xn", "yn", "zn"]] = visibility_dataset_df[["x", "y", "z"]] - np.mean(visibility_dataset_df.values[:,:3], axis=0)
-    visibility_dataset_df[["xn", "yn", "zn"]] = visibility_dataset_df[["xn", "yn", "zn"]] / visibility_dataset_df[["xn", "yn", "zn"]].max().max()
-    #Normalize xyz angles / view directions
-    visibility_dataset_df[["xhn", "yhn", "zhn"]] = visibility_dataset_df[["xh", "yh", "zh"]]- np.mean(visibility_dataset_df.values[:,3:6], axis=0)
-    #print(visibility_dataset_df[["xhn", "yhn", "zhn"]] .max())# Bug detected as angle normalization was performed with location mean [:,:3] instead of [:,3:6].
-    visibility_dataset_df[["xhn", "yhn", "zhn"]] = visibility_dataset_df[["xhn", "yhn", "zhn"]] / visibility_dataset_df[["xhn", "yhn", "zhn"]].max().max()
-    #print(visibility_dataset_df[["xhn", "yhn", "zhn"]] .max())
-    if missing_labels:
-        return visibility_dataset_df
-
-    #Read list column:
-    if label_split is None:
-        visibility_dataset_df["f_xyz_raw"] = visibility_dataset_df["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').replace("\n", "").split(" ") if d.isdigit()])
-    if label_split == ",":
-        visibility_dataset_df["f_xyz_raw"] = visibility_dataset_df["f_xyz"].apply(lambda d: [eval(d) for d in d.strip('[]').split(",") if d.isdigit()])
-    
-    max_row_value                      = sum(visibility_dataset_df["f_xyz_raw"].iloc[0])
-
-    # Filter labels either by index or by occurence
-    if selected_label_indexes is None:
-        #a. Filter down to only labels that appear:
-        minimum_occurances                 = min_percentage_per_class * max_row_value * visibility_dataset_df.shape[0]
-        indvidual_class_occurences         = np.sum(np.vstack((visibility_dataset_df["f_xyz_raw"].values)), axis=0)
-        non_empty_classes                  = indvidual_class_occurences > minimum_occurances
-    else:
-        #b. Filter by selected indexes.
-        non_empty_classes = np.in1d(np.arange(len(visibility_dataset_df["f_xyz_raw"].iloc[0])), selected_label_indexes)
-
-    visibility_dataset_df["f_xyz"]     = visibility_dataset_df["f_xyz_raw"].apply(lambda d: \
-                                             [p for (p, e) in zip(d, non_empty_classes) if e])
-    #Normalize appearances:
-    visibility_dataset_df["f_xyz"]     = visibility_dataset_df["f_xyz"].apply(lambda d: [(2 * x) / max_row_value - 1 for x in d]) 
-    
-    return visibility_dataset_df, non_empty_classes
