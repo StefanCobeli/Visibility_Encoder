@@ -5,7 +5,8 @@ from flask_cors import CORS, cross_origin
 from utils.scripts.architectures.train_location_encoder import *
 from utils.test_location_encoder                        import *
 from utils.view_impact                                  import remove_builiding_and_retrain_model, reset_encoder_weights
-from utils.gradient_walk_utils                          import query_locations, query_locations_on_surface, load_model_from_info_dict_path
+from utils.gradient_walk_utils                          import query_locations, query_locations_on_surface#, load_model_from_info_dict_path
+import time
 
 app = Flask(__name__)
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -150,7 +151,7 @@ def remove_building_page():
     return jsonify([{"removed losses":np.vstack(rm_losses_history).tolist(), "test losses": np.vstack(test_losses_history).tolist()}])
 
 
-# Split facade into tiles and display scalar field / random locations within each tile.
+# DISCRETE: Split facade into tiles and display scalar field / random locations within each tile.
 @app.route('/predict_facade_from_base_points_as_tiles', methods=["POST", "GET"])
 def predict_facade_from_base_points_as_tiles_page():
     '''   
@@ -184,16 +185,16 @@ def predict_facade_from_base_points_as_tiles_page():
 
         from utils.geometry_utils import generate_vertical_squares
 
-        n_width = 10#15 #number of tiles on the thinnest side.
+        n_width = 5#10#15 #number of tiles on the thinnest side.
         n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
-        n_samples = 100 #sampels per tile
+        n_samples = 6 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
         points    = bp
 
         #centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples) #used in get_facade_predictions_as_tiles
         info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
         
         from utils.test_location_encoder import get_facade_predictions_as_tiles
-        facade_dict = get_facade_predictions_as_tiles(points, n_height, info_dict_path, n_width, n_samples)
+        facade_dict = get_facade_predictions_as_tiles(points, n_height, info_dict_path, n_width, n_samples)[0]
 
         print("predicted dict keys: ", list(facade_dict.keys()))
 
@@ -224,7 +225,7 @@ def predict_facade_from_base_points_as_tiles_page():
     
     ##Normalize predictions to maximum of the predicted class:
 
-
+    print("\nNot Jsonified response sample: ", facade_dict[:2])
     response = jsonify(facade_dict)
     print("Jsonified response:", response)
     # response.headers.add('Access-Control-Allow-Origin', '*')
@@ -235,7 +236,93 @@ def predict_facade_from_base_points_as_tiles_page():
 
     return response
 
+# Split facade into tiles and display scalar field / random locations within each tile.
+@app.route('/predict_facade_from_base_points_as_continous_tiles', methods=["POST", "GET"])
+def predict_facade_from_base_points_as_continous_tiles_page():
+    '''   
+    ///receives argumets - data: basePoints, bh, ppf and 
+    http://127.0.0.1:5000/predict_facade_from_base_points_as_continous_tiles
+    or in command line:
+    curl -X POST -H "Content-Type: application/json" --data @./utils/assets/new_buildings/base_points_example.json "http://127.0.0.1:5000/predict_facade_from_base_points_as_continous_tiles"
+    '''
+    base_points_name = request.args.get('bpn', 'unnamed_points') # base points name #"base_points_example"
+    base_points_path = request.args.get('bph', f'./utils/assets/new_buildings/{base_points_name}.csv')
 
+    try:
+        data  = request.json
+        print("Received data was:\n\t", data)
+        bp_df = pd.DataFrame(data)#.to_dict(orient="records")
+
+        start_time = time.time()
+        #1. Read base points
+        
+        bp  = bp_df.values
+        print("Received base points were:", bp, "\n")
+
+        #Performance logs:
+        total_time = time.time() - start_time
+        print(f"\t prediction time: total - {total_time:.2f}s; " )
+            #  f"per location - {total_time/facade_df.shape[0]:.7f}\n")
+        bh  = int(request.args.get('bh', '50'))   #buiding height
+        ppf = int(request.args.get('ppf', '250')) #points per facade side #DEPRECATED
+        print(f"Received height was {bh},\n ppf\t {ppf}, \n ")
+
+
+        from utils.geometry_utils import generate_vertical_squares
+
+        n_width = 10#10#15 #number of tiles on the thinnest side.
+        n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
+        n_samples = 5 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
+        points    = bp
+
+        #centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples) #used in get_facade_predictions_as_tiles
+        info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
+        
+        discretization_type = "linear"
+        # discretization_type = "exponential"
+
+        from utils.test_location_encoder import get_facade_predictions_as_tiles
+        facade_dict = get_facade_predictions_as_tiles(points, n_height, info_dict_path, n_width, n_samples, discretization_type)[1]
+
+        print("predicted dict keys: ", list(facade_dict.keys()))
+
+    except:
+        print("Empty JSON sent in the request - Using the Example base points")
+        base_points_name = "base_points_example"
+        base_points_path = request.args.get('bph', f'./utils/assets/new_buildings/{base_points_name}.csv')
+        bp_df            = pd.read_csv(base_points_path, header=None)
+
+
+    #Mimicking the random locations display method below  (predict_facade_from_base_points_page)
+    # facade_dict = {}
+    # ['building', 'water', 'road ', 'sidewalk', 'surface', 'tree', 'sky', 'miscellaneous']
+    #Which prediction should be the first column. By default is 0
+    # first_prediction_id = 0 #Buildings
+    # first_prediction_id = 1 #Water
+    # first_prediction_id = 2 #Road
+    # first_prediction_id = 3 #sidewalk
+    # first_prediction_id = 4 #surface
+    # first_prediction_id = 5 #Tree
+    # first_prediction_id = 6 #Sky
+    # first_prediction_id = 7 #miscellaneous
+    # for fd in facade_dict:
+    #     p1 = fd["predictions"][first_prediction_id]
+    #     pb = fd["predictions"][0]
+    #     fd["predictions"][first_prediction_id] = pb
+    #     fd["predictions"][0] = p1
+    
+    ##Normalize predictions to maximum of the predicted class:
+
+    print("\nNot Jsonified response sample: ", facade_dict[:2])
+    response = jsonify(facade_dict)
+    print("Jsonified response:", response)
+    # response.headers.add('Access-Control-Allow-Origin', '*')
+
+    # facade_dict = [{"camera_coordinates":[fr["x"],fr["y"],fr["z"],fr["xh"],fr["yh"],fr["zh"]]\
+    #     , "predictions": fr["predictions"] } for fr in facade_records]
+    # response = jsonify(facade_dict)
+
+    return response
 
 # Create locations on facade of the building - random points on facade. Not ordered tiles.
 @app.route('/predict_facade_from_base_points', methods=["POST", "GET"])

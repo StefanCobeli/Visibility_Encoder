@@ -28,22 +28,6 @@ semantics_to_colors = {
 }
 
 
-def load_model_from_info_dict_path(info_dict_path):
-    '''
-    Load NeRFS trained model based on info dictionary.
-    '''
-    
-    # Initialize NeRFS model with weights of trainedNeRF model
-    info_dict       = pd.read_json(info_dict_path).to_dict()[0]
-    print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])
-    # return info_dict
-    norm_params     = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
-
-    trained_model_path = info_dict_path.replace("training_info_", "encoder_").replace(".json", ".pt")
-    trained_encoder            = network.nerfs.NeRFS(norm_params=norm_params, surface_type="square", pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
-    trained_encoder.load_state_dict(torch.load(trained_model_path))
-    
-    return trained_encoder, info_dict
 
 def get_hidden_layer_predictions(data_path, trained_model_path, info_dict_path=None, frac=1, query_format=False):
     '''
@@ -195,13 +179,13 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
 
     return mean_loss, all_losses, test_predictions, test_df, info_dict
 
-# Moved from 2_Buildings_to_Exterior_Use_Case on 03.10.2025
-def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path, n_width = 5, n_samples = 50):
+# Moved from 2_Buildings_to_Exterior_Use_Case to test_location_encoder.py on 03.10.2025
+def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path, n_width = 5, n_samples = 50, discretization_type = "linear"):
     '''n_width - tiles per smallest side
     n_samples - sampels per tile
+    returns: 
     '''
     #0. Load model
-    from utils.gradient_walk_utils import load_model_from_info_dict_path
     # info_dict_path = "./utils/assets/data/semantics/models/training_info_bs_1024_1000.json"
     #info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
     trained_encoder, info_dict = load_model_from_info_dict_path(info_dict_path)
@@ -210,16 +194,22 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
     #2. Builiding tiles
     from utils.geometry_utils import generate_vertical_squares
     from utils.geometry_utils import sort_polygon_points, compute_perpendicular_orientation
+    
+    #Fix height for all base points, to be the tallest one:
+    # base_points[:,1] =  base_points[:,1].max() Not used -- #For some reason mixes the order of the sorted points
+    # Adjust base points to be further away from the center by 1 percent:
+    base_points = adjust_points(base_points, 20)
 
     # n_width = 5; n_samples = 50#50
     # n_height = 116; #points = [[2244.487116618618, -0.10353878972804864, 1112.2862697008927], [2279.1700691989004, -1.347170397506389, 1116.533378041281], [2251.2898400509403, 3.3851716251081143, 1057.75508162751], [2285.9727926312225, 2.141540017329774, 1062.0021899678982]]
     n_height = building_height
     points   = base_points
 
-    centers, samples, side_length, side_ids = generate_vertical_squares(points, n_width, n_height, n_samples)
+    centers, samples, side_length, side_ids = generate_vertical_squares(points, n_width, n_height, n_samples) #the points are sorted inside generate_vertical_squares
     sorted_base_points            = sort_polygon_points(points)
+    #side_length = 
     #Draw the computed centers and tile samples in o3d:
-    print(f"The side length of each tile is {side_length} x{ side_length}")
+    print(f"The side length of each tile is {side_length} x {side_length}")
     # draw_facade_centers_and_tiles_in_o3d(points, centers, samples)            
 
     #3. Initialize facade_dict to be passed by server.py
@@ -230,14 +220,16 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
     # facade_dict.update({s:[] for s in info_dict["non_empty_classes_names"]})
     #3. Initialize facade_dict (facade_dicts_list) to be passed by server.py
     # camera_coordinates : [x,y,z,xh,yh,zh], predictions:[l1,l2,...]
-    facade_dicts_list = []
+    facade_dicts_list = [] #"camera_coordinates", predictions, facede_side
+    tile_dicsts_list  = [] #Each tile has "center", "dimension", "points", "mean_intensities"
 
     #Loop logs
     from tqdm.notebook import tqdm
     import numpy as np
     np.random.seed(1)
     prediction_dicts = []
-    print("predicting from raw xyz coordinates ")
+    print(f"\nPredicting visibility from raw xyz coordinates for:")
+    print(f"\t{len(centers)} tiles x {len(samples[0])} locations per tile = {len(centers)*len(samples[0]):,} total facade location estimations.")
 
     #4. Iterate through tiles / centers
     import torch
@@ -247,11 +239,15 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
         #centers are list with the order [side1_c1, side1_c2,...side2_c1,...,side4_cn] - see generate_vertical_squares in geometry_utils.py
         centers_per_side = len(centers) // 4
         tile_side_id     = side_ids[i] #i // centers_per_side #index div centers on a side
+        # print(f"{i}/{len(centers)}: Choosing side")
         bp1 = sorted_base_points[tile_side_id]
-        bp2 = sorted_base_points[tile_side_id + 1] if tile_side_id < 3 else 0
+        bp2 = sorted_base_points[tile_side_id + 1] if tile_side_id < 3 else sorted_base_points[0]
+        # print(f"Side base points: \n\t{bp1} - {bp2}")
         xyzh_normal      = compute_perpendicular_orientation(bp1, bp2)
 
         prediction_dicts.append([])
+        tile_predictions = []
+        tile_points      = []
 
         #For each tile / center predict all locations
         # print(f"{i}/{len(centers)}: iterating through center")
@@ -265,36 +261,128 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
 
             _,_, prediction = trained_encoder.predict_from_raw(xyz, xyzh) #predictions are in tanh (-1, 1)
 
-            percentage_predictions = prediction.detach().numpy()[0] / 2 + 0.5
+            percentage_predictions = (prediction / 2 + 0.5).detach().numpy()[0]
             predicition_dictionary = dict(zip(present_classes, percentage_predictions.tolist()))
             prediction_dicts[-1].append(predicition_dictionary)
+            tile_predictions.append(percentage_predictions)
 
             #populate facade_dict to be passed by server.py
-            camera_coordinates = np.hstack([xyz.detach(), xyzh.detach()]).round(5).tolist()
-            facade_dict = {"camera_coordinates":camera_coordinates, "predictions":percentage_predictions.round(5).tolist()}
+            camera_coordinates = np.hstack([xyz.detach().numpy().astype(int), xyzh.detach().numpy().astype(int)]).tolist()
+            tile_points.append(xyz.detach().numpy().round(5).tolist())
+            facade_dict = {"camera_coordinates":camera_coordinates, "predictions":percentage_predictions.round(5).tolist(), "facede_side": [bp1.tolist(), bp2.tolist()]}
             facade_dicts_list.append(facade_dict)
             # for i in range(6):
             #     facade_dict["camera_coordinates"][i].append(float(camera_coordinates[i]))
             # facade_dict["predictions"].append(float(prediction.detach().numpy()[0][-2]))#sky label index is -2
             # for i, s in enumerate(present_classes):
             #     facade_dict[s].append(float(percentage_predictions[i]))
+        
+        tile_dict = {}
+        tile_dict["center"]            = centers[i].tolist()
+        tile_dict["dimension"]         = side_length
+        # tile_dict["points"]            = [centers[i]] + [bp1, bp2] + np.vstack(tile_points).tolist()
+        # print(f"Side base points v2: \n\t{bp1.tolist()} - {bp2.tolist()}")
+        tile_dict["points"]            = [bp1.tolist(), bp2.tolist()] + np.vstack(tile_points).tolist()
+        tile_dict["mean_intensities"]  = dict(zip(present_classes, np.vstack(tile_predictions).mean(axis=0).tolist()))
+        #maximums_per_class = dict(zip(tile_dict["mean_intensities"].keys(), np.vstack([list(tile_dict["mean_intensities"].values()) for t in tile_dicsts_list]).max(axis=0)))
+        #tile_dict["colors"] = {s: intesity_to_color(i/maximums_per_class[s], discretization_type=discretization_type) \
+        #                   for (s, i) in tile_dict["mean_intensities"].items()}
+        tile_dicsts_list.append(tile_dict)
+    print("\n Iterated through all the centers.")
+    
+    # Add color to each tile based on normalized intesity
+    maximums_per_class = dict(zip(tile_dicsts_list[0]["mean_intensities"].keys(), np.vstack([list(t["mean_intensities"].values()) for t in tile_dicsts_list]).max(axis=0)))
+    for t in tile_dicsts_list:
+        t["colors"] = {s: intesity_to_color(i/maximums_per_class[s], discretization_type=discretization_type) \
+                        for (s, i) in t["mean_intensities"].items()}
 
     ##Normalize predictions to maximum of the predicted class:
     predictions_per_class = np.vstack([facade_dicts_list[i]["predictions"] for i in range(len(facade_dicts_list))])
     max_per_class = predictions_per_class.max(axis=0)
-    
-    # print("Maximums per class are:", max_per_class)
+    # print("\nMaximums per class are:", max_per_class)
     # print("facade dict example:", facade_dicts_list[0])
     # print([p/max_per_class[i] for i,p in enumerate(facade_dicts_list[0]["predictions"])])
-    for fd in facade_dicts_list:
+    for fd in facade_dicts_list: #Round predictions
         fd["predictions"] = [np.round(p / max_per_class[i], 5) for i,p in enumerate(fd["predictions"])]
 
-    return facade_dicts_list# facade_dict
+    return facade_dicts_list, tile_dicsts_list# facade_dict
 
 
 # info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
 # n_height = 20; points = [[2244.487116618618, -0.10353878972804864, 1112.2862697008927], [2279.1700691989004, -1.347170397506389, 1116.533378041281], [2251.2898400509403, 3.3851716251081143, 1057.75508162751], [2285.9727926312225, 2.141540017329774, 1062.0021899678982]]
    
+# Moved from 2_Buildings_to_Exterior_Use_Case to test_location_encoder.py on 03.19.2025
+def tuple_to_hexa_color(tuple_color):
+    """https://stackoverflow.com/a/3380739
+    tuple_color - ints in 0 - 255
+    """
+    if not(type(tuple_color[0]) is int):
+        tuple_color = tuple([int(255 * c) for c in tuple_color])
+        #print(tuple_color)
+    return '#%02x%02x%02x' % tuple_color
+    
+# tuple_to_hexa_color(sns.color_palette("magma", n_colors=10)[0]), sns.color_palette("magma", n_colors=10)[0],\
+# tuple_to_hexa_color(sns.color_palette("magma", n_colors=10)[-1]), sns.color_palette("magma", n_colors=10)[-1]
+
+# Moved from 2_Buildings_to_Exterior_Use_Case to test_location_encoder.py on 03.19.2025 
+def intesity_to_color(intensity, color_pallete=sns.color_palette("magma", n_colors=10), discretization_type="linear"):
+    """
+    intensity - subunitary between 0 and 1.
+    discretization_type : linear or exponential, more prone to perceived visibility information
+    """
+    num_colors  = len(color_pallete)
+    
+    if discretization_type == "linear":
+        color_value = min(int(intensity*num_colors), num_colors-1)
+    if discretization_type == "exponential":
+        exponential_factor = 1 - np.exp(-5 * intensity)
+        color_value = min(int(exponential_factor*intensity*num_colors), num_colors-1)
+        pass
+    
+    tuple_color = color_pallete[color_value]
+    hex_color   = tuple_to_hexa_color(tuple_color)
+    
+    return hex_color
+
+# len(sns.color_palette("magma", n_colors=10))
+# intesity_to_color(.8)
+
+def adjust_points(points, x):
+    """
+    Adjusts four 3D points by moving them x% away from their diagonally opposite point.
+    
+    Parameters:
+    points (list of lists or np.array): A list or array of four 3D points.
+    x (float): The percentage (0-100) of the distance to move away from the center.
+    
+    Returns:
+    np.array: The adjusted points.
+    """
+    points = np.array(points)
+    assert points.shape == (4, 3), "Input must be four 3D points."
+    
+    # Compute center of the four points
+    center = np.mean(points, axis=0)
+    
+    # Define diagonally opposite pairs
+    pairs = [(0, 3), (1, 2), (2, 1), (3, 0)]
+    
+    # Compute adjusted positions
+    adjusted_points = np.copy(points)
+    for i, (idx, opp_idx) in enumerate(pairs):
+        direction = points[idx] - points[opp_idx]  # Direction away from opposite point
+        distance = np.linalg.norm(points[idx] - center)  # Distance to center
+        displacement = (x / 100) * distance * direction / np.linalg.norm(direction)  # Scale displacement
+        adjusted_points[idx] += displacement  # Move the point
+    
+    return adjusted_points.tolist()
+# Example usage:
+# points = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]
+# x = 10  # Move 10% away
+# adjusted_points = adjust_points(points, x)
+# print(adjusted_points)
+
+
 
 
 def predict_facade_from_base_points(base_points, building_height, points_per_facade_face=100, normalized_predictions="log", batch_size=2**15, debugging_predictions=False):
@@ -481,3 +569,138 @@ def formula_and_dict_to_perception(formula_expression, f_xyz_semantics_dict):
     #print("Semantics formula: ", formula_expression)
     #print("Numerical formula: ", numerical_formula)
     #print("Evaluated formula: ", eval(numerical_formula))
+
+
+
+'''Moved from 1_Training_and_View_query_use_case to test_location_encoder.py to avoid circular imports not ./utils/scripts/architectures/train_location_encoder.py on Mar 17th 2025'''
+def train_2d_projectors_and_clusteres(test_data_path, trained_model_path, projectors, clusterers, frac=1):
+    '''
+    Computing latent space, hidden feature clustering and 2d projections
+        To dos in the full training function:
+            train encoder model
+            train and save as PKL: PCA, UMAP, GM, AGG, DBSCAN - num clusters (n and maybe 2n) - create folder for projectors.
+            generate json with all these fields.
+    
+    '''
+    #1. Get latent space
+    nerf_predictions, nerf_latent_features, test_df, trained_encoder = \
+        get_hidden_layer_predictions(test_data_path, trained_model_path, info_dict_path=None, frac=frac, query_format=True)#[2]
+    
+    # 2. Perform all projections:
+    for projector in projectors:
+        start_time = time()
+        projector, projected_results_global = project_data_on_2d(global_data = nerf_latent_features, projector=projector, query_data=None)
+        projector_name                      = projector.__class__.__name__
+        projector_path                      = trained_model_path.replace("/encoder_", f"/{projector_name}_").replace(".pt", ".pkl")
+        joblib.dump(projector, projector_path) 
+        test_df[projector_name]             = projected_results_global.tolist()
+        print(f"{projector_name} projection took {time() -  start_time:.2f}s")
+        #print("Example projection: ", projected_results_global[0],"\n")
+    
+    # 3. Perform all clustering methods & zip assignment
+    X               = nerf_latent_features
+    for clusterer_name in clusterers:
+        clusterer               = clusterers[clusterer_name]
+        labels                  = clusterer.fit_predict(X)
+        test_df[clusterer_name] = labels
+        clusterer_path          = trained_model_path.replace("/encoder_", f"/{clusterer_name}_").replace(".pt", ".pkl")
+        joblib.dump(clusterer, clusterer_path) 
+        print(f"{clusterer_name} clustering took {time() -  start_time:.2f}s")
+    
+    test_df["zip"]      = locations_to_zip(test_df[["x", "y", "z"]].values.tolist()) #Same application method as in `gradient_walk_utils.py`
+    location_types      = ["zip"] + list(clusterers.keys())
+    test_df["clusters"] = test_df.apply(lambda r: {lid : r[lid] for lid in location_types}, axis=1)
+    
+    return test_df.drop(location_types, axis=1)
+
+
+
+
+# from utils.scripts.architectures.train_location_encoder import train_model_on_data
+from sklearn.mixture import GaussianMixture
+from sklearn.cluster import AgglomerativeClustering, DBSCAN
+from sklearn.decomposition import PCA
+# import matplotlib.pyplot as plt
+import umap
+# import numpy as np
+# import pandas as pd
+from time import time
+import joblib
+from utils.gradient_walk_utils import project_data_on_2d, locations_to_zip
+# from utils.test_location_encoder import get_hidden_layer_predictions#, load_model_from_info_dict_path
+'''Moved from 1_Training_and_View_query_use_case to test_location_encoder.py to avoid circular imports not ./utils/scripts/architectures/train_location_encoder.py on Mar 17th 2025'''
+def train_model_and_genrate_latent_space_projections(data_path, ne, sli, frac):
+    '''
+    input: 
+        train (& test) data paths
+        num_epochs
+        sli : selected label indexes
+        
+    returns: jsons to be used in the interface
+    '''
+
+    #1. Train NeRF for ne epochs
+    train_data_path = f"{data_path}/train.json"
+    model_name      = f"encoder_{ne}.pt"
+    encoder_net, tr_losses_history, test_losses_history, vdf \
+    = train_model_on_data(data_path=train_data_path, num_epochs=ne, tsp=frac, selected_label_indexes=sli, model_name=model_name)
+
+    # 2. train and save as PKL: PCA, UMAP, GM, AGG, DBSCAN - num clusters (n and maybe 2n) - create folder for projectors.
+    test_data_path      = f"{data_path}/test.json"
+    trained_model_path  = train_data_path.replace("train.json", f"models/{model_name}")
+    projectors          = [PCA(n_components=2), umap.UMAP(n_components=2, n_neighbors=15)]
+    clusterers         = {f"GM-{len(sli)}": GaussianMixture(n_components=len(sli), covariance_type='full', random_state=42),
+                        f"AGG-{2*len(sli)}": AgglomerativeClustering(n_clusters=2*len(sli), linkage='ward'),
+                        "DBSCAN": DBSCAN(eps=0.5, min_samples=max(5, vdf.shape[0]//100))
+                       }
+    test_as_query_df = train_2d_projectors_and_clusteres(test_data_path, trained_model_path, projectors, clusterers, frac=frac)
+    
+    #3. Generate jsons with query fields. If semantics case generate also perceptions json.
+    test_json_path = trained_model_path[:trained_model_path.index("models/")] + "test_set_as_query.json"
+    test_as_query_df.to_json(test_json_path, indent=4, orient="records")
+    np.random.seed(1)
+    test_as_query_df.sample(15).to_json(test_json_path.replace("test_set_as_query", "small_query"), indent=4, orient="records")
+    print()
+    print(", ". join([p.__class__.__name__ for p in projectors] + ["zip"] + list(clusterers.keys())\
+                    ), f" test set as query, projectors and clusterers saved at: \n\t{test_json_path}")
+
+    #3.b In semantics case save also a perception json
+    if "tree" in test_as_query_df.f_xyz.values[0]: #Check if it is the semantics prediction case and generate perceptions:
+        test_as_query_df_semantics = test_as_query_df.copy()
+        perc_def = pd.read_json('./utils/assets/data/perception_metrics/predefinedPerceptions.json')
+        predefined_formulas_dict = {p: perc_def[p].values[0]["expression"] for p in perc_def}
+        from utils.test_location_encoder import formula_and_dict_to_perception
+        
+        test_as_query_df["f_xyz"] = test_as_query_df["f_xyz"].apply(lambda f_xyz:\
+                {p: formula_and_dict_to_perception(predefined_formulas_dict[p], f_xyz) for p in predefined_formulas_dict})
+         
+        test_json_path = trained_model_path[:trained_model_path.index("models/")] + "test_set_perception_as_query.json"
+        test_as_query_df.to_json(test_json_path, indent=4, orient="records")
+        np.random.seed(1)
+        test_as_query_df.sample(15).to_json(test_json_path.replace("test_set_perception_as_query", "small_query_perception"), indent=4, orient="records")
+
+        print(", ". join([p.__class__.__name__ for p in projectors] + ["zip"] + list(clusterers.keys())\
+                        ), f" perceptions test set as query, projectors and clusterers saved at: \n\t{test_json_path}")
+
+        return (test_as_query_df_semantics, test_as_query_df), test_losses_history#semantics, perceptions dfs
+    
+    return (test_as_query_df, None), test_losses_history#buildings df, None - replicate perceptions return above
+
+
+#moved to test_location_encoder.py from 1_encoder_experiment_training_density_requirements and gradient_walk_utils due to ciruclar import 03.18.2025 & in November 2024
+def load_model_from_info_dict_path(info_dict_path):
+    '''
+    Load trained model based on path to info dictionary.
+    '''
+    print(f"Loading model as described in:\n\t{info_dict_path}")
+    # Initialize NeRFS model with weights of trainedNeRF model
+    info_dict       = pd.read_json(info_dict_path).to_dict()[0]
+    print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])
+    # return info_dict
+    norm_params     = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
+
+    trained_model_path = info_dict_path.replace(".json", ".pt").replace("training_info", "encoder")
+    trained_encoder            = network.nerfs.NeRFS(norm_params=norm_params, surface_type="square", pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
+    trained_encoder.load_state_dict(torch.load(trained_model_path))
+    
+    return trained_encoder, info_dict

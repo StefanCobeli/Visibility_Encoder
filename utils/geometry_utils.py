@@ -215,8 +215,9 @@ def sort_polygon_points(points):
     # Sort points by angle (clockwise order)
     sorted_indices = np.argsort(angles)
     sorted_points = [points[i] for i in sorted_indices]
-
-    return sorted_points[::-1]
+    # print("Unsorted array:", sorted_points[::-1])
+    # print("Sorted array:", np.array(sorted_points[::-1]))
+    return np.array(sorted_points[::-1])
 
 
 # Moved from 2_Buildings_to_Exterior_Use_Case and 1_encoder_experiment_training_density_requirements - 03.10.2025
