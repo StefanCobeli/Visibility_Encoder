@@ -101,12 +101,21 @@ def query_locations_page():
     try:
         data                 = request.json
         query_df             = pd.DataFrame(data)
+        query_df["f_xyz"].values[0]["miscellaneous"] = 0
 
         desired_distribution = query_df["f_xyz"].values[0] 
-        print(f"The received query is:\n\t{desired_distribution}")
-
-        desired_distribution = [float(x) for x in query_df["f_xyz"].values[0]]
+        desired_keys         = [str(x) for x in query_df["f_xyz"].values[0].keys()]
+        desired_distribution = [float(x) for x in query_df["f_xyz"].values[0].values()]
         num_locations        = int(query_df["num_locations"].values[0])
+        print(f"The received query is #{num_locations} locations:\n\t{desired_keys} : {desired_distribution}")
+        # print("query_df is ", query_df)
+        default_label_order  = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky', 'miscellaneous']
+        reordering_query_ids = [desired_keys.index(s) for s in default_label_order]
+        desired_keys         = [desired_keys[i] for i in reordering_query_ids]
+        desired_distribution = [desired_distribution[i] for i in reordering_query_ids]
+        print(f"Reordered query is #{num_locations} locations:\n\t{desired_keys} : {desired_distribution}")
+        # print("query_df is ", query_df)
+        search_intervals     = np.ones(len(query_df["f_xyz"])) * .05
         #if "seed" in query_df:
         #    seed = int(query_df["seed"])
     except Exception as e:
@@ -117,6 +126,7 @@ def query_locations_page():
 
 
     al_df = query_locations(desired_distribution, num_locations, search_intervals, lt, at, max_steps, seed)
+    al_df 
     #al_df = query_locations(desired_distribution, num_locations, seed)
     al_df.to_csv("./utils/assets/query_locations/query_location.csv", index=False)
 

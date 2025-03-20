@@ -18,7 +18,7 @@ from utils.test_location_encoder import parse_training_info
 
 from utils.scripts.architectures.train_location_encoder import *
 from utils.scripts.architectures.torch_nerf_src import network
-# from utils.gradient_walk_utils import initialize_trained_encoder, intialize_input_as_tensor
+# from utils.gradient_walk_utils import initialize_trained_encoder, initialize_input_as_tensor
 # from utils.scripts.architectures.train_location_encoder import rescale_from_norm_params 
 
 import joblib
@@ -69,7 +69,7 @@ def choose_model_based_on_query(desired_distribution):
         #same model and info_dict as in the #semantics_full case
         # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
         # info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes # December 2024
-        info_dict_path = "./utils/assets/data/semantics/models/training_info_350.json"
+        info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
 
         print("\nCustom perception query case found:")
         print(f"Querying for custom perceptions: \n\t{custom_formula_names}\nwith forumulas:\n\t{custom_formula_names}")
@@ -99,7 +99,7 @@ def choose_model_based_on_query(desired_distribution):
             labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
             # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
             # info_dict_path = "./utils/assets/data/semantics_final/models/training_info_1000.json"#final data with six height levels and all 8 semantic classes # December 2024
-            info_dict_path = "./utils/assets/data/semantics/models/training_info_350.json"
+            info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
             rectified_distribution = np.zeros_like(semantics_full, dtype=float)  #- 1
             rectified_distribution[label_ids] = [desired_distribution[semantics_full[qi]] for qi in label_ids]
             print("\nFull semantics found:")
@@ -111,7 +111,7 @@ def choose_model_based_on_query(desired_distribution):
         perceptions          = ["greenness", "openness", "imageability", "enclosure", "walkability", "serenity"]
         labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)
         if len(labels) > 0: #perception case
-            info_dict_path = "./utils/assets/data/perception_metrics/models/training_info_350.json"
+            info_dict_path = "./utils/assets/data/perception_metrics/models/training_info_100.json"
             rectified_distribution = np.zeros_like(perceptions, dtype=float) #- 1
             rectified_distribution[label_ids] = [desired_distribution[perceptions[qi]] for qi in label_ids]
             print(f"Querying for perception semantics: \n\t{perceptions}")
@@ -149,13 +149,15 @@ def initialize_trained_encoder(encoder_name="semantics"):
         encoder_name - {"semantics", "perception", "buildings", "general"}
     '''
     
-    mv = 350   #350 - trained with 4 sematic classes                  #model version
+    mv = 100   #350 - trained with 4 sematic classes                  #model version
     # mv = 1000 #1000 - trained with 7 sematic classes and 10 depth estimators
-    mp = "./utils/assets/models/"# path to models folder
+    mp = "./utils/assets/data/semantics/models"# path to models folder
     info_dict       = parse_training_info(mp, mv)
     trained_encoder = network.nerf.NeRF(pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"]\
         ,  view_dir_dim=info_dict["enc_input_size"], feat_dim=256)
-    trained_encoder.load_state_dict(torch.load(f"{mp}/encoder_{mv}.pt"))
+    trained_model_path = f"{mp}/encoder_{mv}.pt"
+    print(f"Loading model from {trained_model_path}")
+    trained_encoder.load_state_dict(torch.load(trained_model_path))
     
     return trained_encoder, info_dict
 
@@ -532,6 +534,21 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
 
     custom_target_d = desired_distribution #Distribution in percentages 
     desired_target  = (np.array(custom_target_d) * 2 - 1).tolist() #Distribution in tanh
+    
+    # original_distribution = copy(desired_distribution)
+    # if type(desired_distribution) is dict: 
+
+    #     #Make search intervals based on the length of desired_distribution
+    #     info_dict, rectified_distribution = choose_model_based_on_query(desired_distribution)
+    #     interval = search_intervals[0]
+    #     search_intervals = np.where(rectified_distribution==-1, 10, np.ones_like(rectified_distribution) * interval)
+
+    #     desired_distribution = torch.tensor(rectified_distribution).to(torch.float32)
+
+    #     print(f"Search Intervals:\n\t{search_intervals}")
+    #     print(f"Detected custom formula strings:\n\t{info_dict['custom_formula_strings']}")
+    
+    # desired_target = desired_distribution
 
 
     for i in tqdm(range(n_trials * 10)):
@@ -547,6 +564,10 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
         ### Gradient Walk: - For each location until finding num_locations.
         # print("Intervals:", search_intervals)
         achieved_loc, perc_pred, tr, gn, prds, lstr, ps, fr = gradient_walk(actual_loc, desired_target, search_intervals, max_steps, lt, True)
+
+        print("Achieved location:", achieved_loc)
+        if achieved_loc[1] < 10:
+            continue
 
         if lstr[-1].mean() < (at * lt): #if last loss is lower than - theshold x acceptaple factor # loss trajectory
             locations.append((actual_loc, achieved_loc))
@@ -589,7 +610,7 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
     criterion                  = torch.nn.MSELoss(reduction='none')
     trained_encoder, info_dict = initialize_trained_encoder()
 
-    sample_batch    = intialize_input_as_tensor(actual_loc, desired_target, info_dict)
+    sample_batch    = initialize_input_as_tensor(actual_loc, desired_target, info_dict)
 
     trajectory      = [np.array(actual_loc)]
     gradients_norm  = []
@@ -604,7 +625,8 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
     #loss_threshold = np.inf #.45
     if optimizer is None:
         lrate      = 1e-2#.05#1e-2#.05 #1e-2
-        optimizer  = torch.optim.Adam(params=[input_pos, input_dir], lr=lrate)
+        # optimizer  = torch.optim.Adam(params=[input_pos, input_dir], lr=lrate)
+        optimizer  = torch.optim.Adam(params=[input_pos], lr=lrate)#Optimize just the position
 
     #n_steps        = 100
     if verbose:
@@ -620,6 +642,7 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
         output     = trained_encoder(input_pos, input_dir, from_raw=True)
         prediction = (output.detach().numpy())
         labels     = sample_batch["output"]
+        # print(f"Predictions - {prediction.shape}: {prediction}, \nlabels - {labels.shape}: {labels.numpy()}, \nintervals: {intervals}")
 
         # print("Intervals:", intervals)
         #Adaptive labels to interval:
@@ -657,7 +680,6 @@ def gradient_walk(actual_loc, desired_target, intervals=None, n_steps=10, loss_t
         actual_loc = np.hstack([scaled_loc, scaled_dir])
         #actual_loc = input_pos.detach().numpy()[0]
         trajectory.append(actual_loc)
-
 
         if loss.mean() < loss_threshold:
             break
@@ -728,13 +750,13 @@ def interval_desired_target_loss(prediction, desired_target, intervals):
 def get_gradient_from_location_and_output(mock_location, mock_target, return_predictions=True):
     '''
         Deprecated - adapted to directly use a torch optimizer in the gradient_walk method above.
-        Assemble initialize_trained_encoder and intialize_input_as_tensor to also return gradient from location to desired target.
+        Assemble initialize_trained_encoder and initialize_input_as_tensor to also return gradient from location to desired target.
         pos_grad, dir_grad, prediction = get_gradient_from_location_and_output(mock_location, mock_target, return_predictions=True)
     '''
     
     trained_encoder, info_dict = initialize_trained_encoder()
 
-    sample_batch = intialize_input_as_tensor(mock_location, mock_target, info_dict)
+    sample_batch = initialize_input_as_tensor(mock_location, mock_target, info_dict)
     
     #mock_target     = [0.15875327587127686, 0.42250925302505493, 0.11981145292520523, 0.2989259660243988]
     mock_target     = torch.tensor([2*mt -1 for mt in mock_target]) #percentages target #not used for the moment
@@ -770,10 +792,10 @@ def get_gradient_from_location_and_output(mock_location, mock_target, return_pre
 
 
 
-def intialize_input_as_tensor(mock_location, mock_target, info_dict, on_surface=None):
+def initialize_input_as_tensor(mock_location, mock_target, info_dict, on_surface=None):
     '''
         return  a data loader from input mock_location and output mock_target, according to info_dict encoidng information
-        sample_batch = intialize_input_as_tensor(mock_location, mock_target, info_dict)
+        sample_batch = initialize_input_as_tensor(mock_location, mock_target, info_dict)
         mock_location is (1, 6) list -> RAW location - "x", "y", "z", "xh", "yh", "zh".
     '''
     
@@ -786,11 +808,15 @@ def intialize_input_as_tensor(mock_location, mock_target, info_dict, on_surface=
 
     test_path = f"./utils/assets/test_data/location_single_{test_name}.csv"
 
+    info_dict["sli"] = np.sort(np.intersect1d(info_dict["classes_names"], info_dict["non_empty_classes_names"], return_indices=True)[1])
     # test_df = curr_neigborhood
     test_df.to_csv(test_path, index=False)
+    # print(f"Info dict keys: {list(info_dict.keys())}")
+    print(f"Selected Label indexes are: {list(zip(info_dict['non_empty_classes_names'], info_dict['sli']))}")
     ml = True # missing_labels / skip label normalization
     test_df, _, _   = process_locations_visibility_data_frame(test_path, norm_params, selected_label_indexes=info_dict["sli"], missing_labels=ml)
 
+    print("test_df is:", test_df)
 
     #1.Data loader from points
     ml = False # not missing_labels / don't skip labels in the dataloader
@@ -802,6 +828,7 @@ def intialize_input_as_tensor(mock_location, mock_target, info_dict, on_surface=
 
     os.remove(test_path)
     sample_batch = test_dl.sampler.data_source[:1]
+    # print("Sample batch is:", sample_batch)
     
     return sample_batch
 
