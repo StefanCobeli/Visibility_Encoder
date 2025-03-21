@@ -180,15 +180,18 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
     return mean_loss, all_losses, test_predictions, test_df, info_dict
 
 # Moved from 2_Buildings_to_Exterior_Use_Case to test_location_encoder.py on 03.10.2025
-def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path, n_width = 5, n_samples = 50, discretization_type = "linear"):
+def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path, n_width = 5, n_samples = 50, discretization_type = "linear", verbose=True):
     '''n_width - tiles per smallest side
     n_samples - sampels per tile
-    returns: 
+    discretization_type - exponential or linear
+    returns: facade_dicts_list, tile_dicsts_list 
+        facade_dicts_list - points facade
+        tile_dicsts_list  - tile / mesh facade
     '''
     #0. Load model
     # info_dict_path = "./utils/assets/data/semantics/models/training_info_bs_1024_1000.json"
     #info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
-    trained_encoder, info_dict = load_model_from_info_dict_path(info_dict_path)
+    trained_encoder, info_dict = load_model_from_info_dict_path(info_dict_path, verbose)
     present_classes = info_dict["non_empty_classes_names"]
 
     #2. Builiding tiles
@@ -205,11 +208,10 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
     n_height = building_height
     points   = base_points
 
-    centers, samples, side_length, side_ids = generate_vertical_squares(points, n_width, n_height, n_samples) #the points are sorted inside generate_vertical_squares
+    centers, samples, side_length, side_ids = generate_vertical_squares(points, n_width, n_height, n_samples, natural_height=True, verbose=verbose) #the points are sorted inside generate_vertical_squares
     sorted_base_points            = sort_polygon_points(points)
     #side_length = 
     #Draw the computed centers and tile samples in o3d:
-    print(f"The side length of each tile is {side_length} x {side_length}")
     # draw_facade_centers_and_tiles_in_o3d(points, centers, samples)            
 
     #3. Initialize facade_dict to be passed by server.py
@@ -228,12 +230,19 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
     import numpy as np
     np.random.seed(1)
     prediction_dicts = []
-    print(f"\nPredicting visibility from raw xyz coordinates for:")
-    print(f"\t{len(centers)} tiles x {len(samples[0])} locations per tile = {len(centers)*len(samples[0]):,} total facade location estimations.")
+    if verbose:
+        print(f"The side length of each tile is {side_length} x {side_length}")
+        print(f"\nPredicting visibility from raw xyz coordinates for:")
+        print(f"\t{len(centers)} tiles x {len(samples[0])} locations per tile = {len(centers)*len(samples[0]):,} total facade location estimations.")
 
     #4. Iterate through tiles / centers
     import torch
-    for i, c in tqdm(enumerate(centers), total=len(centers)):
+    if verbose:
+        progress_bar = tqdm(enumerate(centers), total=len(centers))
+    else:
+        progress_bar = enumerate(centers)
+
+    for i, c in progress_bar:
 
         #i. Get side orientation given base points:
         #centers are list with the order [side1_c1, side1_c2,...side2_c1,...,side4_cn] - see generate_vertical_squares in geometry_utils.py
@@ -288,7 +297,9 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
         #tile_dict["colors"] = {s: intesity_to_color(i/maximums_per_class[s], discretization_type=discretization_type) \
         #                   for (s, i) in tile_dict["mean_intensities"].items()}
         tile_dicsts_list.append(tile_dict)
-    print("\n Iterated through all the centers.")
+
+    if verbose:
+        print("\n Iterated through all the centers.")
     
     # Add color to each tile based on normalized intesity
     maximums_per_class = dict(zip(tile_dicsts_list[0]["mean_intensities"].keys(), np.vstack([list(t["mean_intensities"].values()) for t in tile_dicsts_list]).max(axis=0)))
@@ -688,19 +699,20 @@ def train_model_and_genrate_latent_space_projections(data_path, ne, sli, frac):
 
 
 #moved to test_location_encoder.py from 1_encoder_experiment_training_density_requirements and gradient_walk_utils due to ciruclar import 03.18.2025 & in November 2024
-def load_model_from_info_dict_path(info_dict_path):
+def load_model_from_info_dict_path(info_dict_path, verbose=True):
     '''
     Load trained model based on path to info dictionary.
     '''
-    print(f"Loading model as described in:\n\t{info_dict_path}")
     # Initialize NeRFS model with weights of trainedNeRF model
     info_dict       = pd.read_json(info_dict_path).to_dict()[0]
-    print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])
+    if verbose:
+        print(f"Loading model as described in:\n\t{info_dict_path}")
+        print("Found the following non empty classes:\n\t", info_dict["non_empty_classes_names"])
     # return info_dict
     norm_params     = (torch.tensor(info_dict["xyz_centroid"]), torch.tensor(info_dict["xyz_max-min"]), torch.tensor(info_dict["xyzh_centroid"]), torch.tensor(info_dict["xyzh_max-min"]))
 
     trained_model_path = info_dict_path.replace(".json", ".pt").replace("training_info", "encoder")
-    trained_encoder            = network.nerfs.NeRFS(norm_params=norm_params, surface_type="square", pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"])
+    trained_encoder            = network.nerfs.NeRFS(norm_params=norm_params, surface_type="square", pos_dim=info_dict["enc_input_size"], output_dim=info_dict["num_present_classes"],  view_dir_dim=info_dict["enc_input_size"], verbose=verbose)
     trained_encoder.load_state_dict(torch.load(trained_model_path))
     
     return trained_encoder, info_dict

@@ -9,3 +9,5 @@ utils/assets/query_locations/query_perception.json
 utils/assets/query_locations/queried_locations_plane.csv
 
 ./utils/assets/data/*
+building_tiles_global.json
+development_notebooks/*

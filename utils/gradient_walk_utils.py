@@ -566,7 +566,7 @@ def query_locations(desired_distribution, num_locations=10, search_intervals=np.
         achieved_loc, perc_pred, tr, gn, prds, lstr, ps, fr = gradient_walk(actual_loc, desired_target, search_intervals, max_steps, lt, True)
 
         print("Achieved location:", achieved_loc)
-        if achieved_loc[1] < 10:
+        if achieved_loc[1] < 10: #If location is below the scene.
             continue
 
         if lstr[-1].mean() < (at * lt): #if last loss is lower than - theshold x acceptaple factor # loss trajectory

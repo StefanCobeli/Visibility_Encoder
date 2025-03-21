@@ -89,7 +89,8 @@ class NeRFS(nn.Module):
         view_dir_dim: int = 3,
         feat_dim: int = 256,
         surface_type: str = "square",
-        custom_formula_strings: list = []
+        custom_formula_strings: list = [],
+        verbose: bool = True
     ):
         """
         Constructor of class 'NeRF'.
@@ -158,13 +159,14 @@ class NeRFS(nn.Module):
                 tensor_operation = expression_to_tensor_op(index_expression)
                 self.custom_formula_tensors.append(tensor_operation)
 
-
-        print("Constructed tensor formulas:", self.custom_formula_tensors)
+        if verbose:
+            print("Constructed tensor formulas:", self.custom_formula_tensors)
 
         try:
             self.surface = ParametricSurface(self.p,self.c,self.r,self.surface_type)
         except:
-            print("Surface not initialized properly. Can only predict from raw position and direction.")
+            if verbose:
+                print("Surface not initialized properly. Can only predict from raw position and direction.")
         
     def forward(
         self,

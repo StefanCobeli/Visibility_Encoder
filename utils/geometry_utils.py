@@ -263,7 +263,7 @@ def compute_perpendicular_orientation(p1, p2):
 #     return euler_angles#
     return np.round(euler_angles, 5 )
 
-def generate_vertical_squares(points, n_width, n_height, n_samples, natural_height=True):
+def generate_vertical_squares(points, n_width, n_height, n_samples, natural_height=True, verbose=True):
     """
     Parameters:
     ----------
@@ -336,8 +336,10 @@ def generate_vertical_squares(points, n_width, n_height, n_samples, natural_heig
     square_side = shortest_length / n_width
 
     if natural_height:
-        print(f"For the height {n_height}, there will be generated {n_height//square_side} square tiles of size {square_side}.")
         n_height = int(n_height // square_side) + 1
+        
+    if verbose:
+        print(f"For the height {n_height}, there will be generated {n_height//square_side} square tiles of size {square_side}.")
 
     # Compute the normal vector of the polygon
     normal_vector = compute_normal(points)
