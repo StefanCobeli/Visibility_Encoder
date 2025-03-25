@@ -180,7 +180,7 @@ def test_encoder_on_data(data_path, model_path, model_version, missing_labels=Fa
     return mean_loss, all_losses, test_predictions, test_df, info_dict
 
 # Moved from 2_Buildings_to_Exterior_Use_Case to test_location_encoder.py on 03.10.2025
-def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path, n_width = 5, n_samples = 50, discretization_type = "linear", verbose=True):
+def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path, n_width = 5, n_samples = 50, discretization_type = "linear", verbose=True, color_normalization="max"):
     '''n_width - tiles per smallest side
     n_samples - sampels per tile
     discretization_type - exponential or linear
@@ -303,9 +303,20 @@ def get_facade_predictions_as_tiles(base_points, building_height, info_dict_path
     
     # Add color to each tile based on normalized intesity
     maximums_per_class = dict(zip(tile_dicsts_list[0]["mean_intensities"].keys(), np.vstack([list(t["mean_intensities"].values()) for t in tile_dicsts_list]).max(axis=0)))
+    if color_normalization == "max":
+        print("Normalizing each color by:")
+    print("Maximums per class:\n\t", maximums_per_class)
+    if type(color_normalization) == dict:
+        print("Replacing maximums per class with handpicked maximums:\n\t", color_normalization)
+        maximums_per_class = color_normalization
     for t in tile_dicsts_list:
-        t["colors"] = {s: intesity_to_color(i/maximums_per_class[s], discretization_type=discretization_type) \
-                        for (s, i) in t["mean_intensities"].items()}
+        if not(color_normalization is None):
+            t["colors"] = {s: intesity_to_color(i/maximums_per_class[s], discretization_type=discretization_type) \
+                            for (s, i) in t["mean_intensities"].items()}
+        else:
+            t["colors"] = {s: intesity_to_color(i, discretization_type=discretization_type) \
+                            for (s, i) in t["mean_intensities"].items()}
+
 
     ##Normalize predictions to maximum of the predicted class:
     predictions_per_class = np.vstack([facade_dicts_list[i]["predictions"] for i in range(len(facade_dicts_list))])

@@ -195,7 +195,7 @@ def predict_facade_from_base_points_as_tiles_page():
 
         from utils.geometry_utils import generate_vertical_squares
 
-        n_width = 10#10#15 #number of tiles on the thinnest side.
+        n_width = 20#10#15 #number of tiles on the thinnest side.
         n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
         n_samples = 6 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
         points    = bp
@@ -280,7 +280,7 @@ def predict_facade_from_base_points_as_continous_tiles_page():
 
         from utils.geometry_utils import generate_vertical_squares
 
-        n_width = 10#10#15 #number of tiles on the thinnest side.
+        n_width = 10#20#10#15 #number of tiles on the thinnest side.
         n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
         n_samples = 5 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
         points    = bp
@@ -290,11 +290,15 @@ def predict_facade_from_base_points_as_continous_tiles_page():
         
         discretization_type = "linear"
         # discretization_type = "exponential"
+        # color_normalization   = "max"
+        # color_normalization   = None
+        color_normalization = {'building': 0.9, 'water': 0.4, 'road': 0.1, 'sidewalk': 0.05, 'surface': 0.15, 'tree': 0.85, 'sky': 0.85, 'miscellaneous': 0.01}#maximums_handpicked
+
 
         from utils.test_location_encoder import get_facade_predictions_as_tiles
-        facade_dict = get_facade_predictions_as_tiles(points, n_height, info_dict_path, n_width, n_samples, discretization_type)[1]
+        facade_dict = get_facade_predictions_as_tiles(points, n_height, info_dict_path, n_width, n_samples, discretization_type, verbose=True, color_normalization=color_normalization)[1]
 
-        print("predicted dict keys: ", list(facade_dict.keys()))
+        # print("predicted dict keys: ", list(facade_dict.keys()))
 
     except:
         print("Empty JSON sent in the request - Using the Example base points")
