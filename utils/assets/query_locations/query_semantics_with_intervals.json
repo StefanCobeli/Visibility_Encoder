@@ -1,0 +1,20 @@
+[
+    {
+        "f_xyz":{ 
+            //midpoint of the interval
+            "road": 0.09,
+            "sky": 0.3
+        },
+        "intervals":{ 
+            //size of the interval: top-bottom
+            "road": 0.02,
+            "sky": 0.6
+        },
+        "point_on_plane": [-300, 60, -292],
+        "direction_1": [1, 0, 0],
+        "direction_2": [0, 0, 1],
+        "r": [3500, 2500],
+        "num_locations":20,
+        "seed":25
+    }
+]

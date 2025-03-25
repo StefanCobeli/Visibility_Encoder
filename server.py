@@ -195,7 +195,7 @@ def predict_facade_from_base_points_as_tiles_page():
 
         from utils.geometry_utils import generate_vertical_squares
 
-        n_width = 5#10#15 #number of tiles on the thinnest side.
+        n_width = 10#10#15 #number of tiles on the thinnest side.
         n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
         n_samples = 6 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
         points    = bp

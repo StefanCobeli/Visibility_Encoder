@@ -193,7 +193,7 @@ def query_locations_on_surface(desired_distribution, surface_basis, surface_type
         info_dict = None
     #print(desired_distribution)
     
-    n_trials  = num_locations * 2 #10
+    n_trials  = num_locations * 5#2 #10
     #Needed just for view_dir intialization
     print("\nProcessing locations_example data for untilted viewing directions. Locations are sampled randomly.")
     vis_df, normp, _   = process_locations_visibility_data_frame("./utils/assets/test_data/locations_example.csv")  
