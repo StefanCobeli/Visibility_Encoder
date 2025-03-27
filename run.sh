@@ -44,8 +44,8 @@ if [ "$path_to_interface" = "0" ]; then
     echo "Clonig repsitory to: $path_to_interface"
     echo "git clone https://github.com/StefanCobeli/visibility-data-generator.git $path_to_interface"
 else
-    echo "Pulling new git commits."
-    git pull
+    # echo "Pulling new git commits."
+    # git pull
     echo "Current dirctory is:"
     pwd
     # ls -l

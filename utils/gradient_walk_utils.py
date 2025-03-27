@@ -54,11 +54,12 @@ def choose_model_based_on_query(desired_distribution):
     """
     query_labels = None
     print(f"The received query is:\n\t{desired_distribution}")
+    print(f"Query condition: values {list(desired_distribution.values())}, {list(desired_distribution.values())[0]}, {type(list(desired_distribution.values())[0])}")
     #Scenarios:
     # 0. Custom Perception
     custom_formula_strings = []
     custom_formula_names   = []
-    if type(list(desired_distribution.values())[0]) is dict:
+    if type(list(desired_distribution.values())[0]) is dict: #Perception case {greenness:{tree:0.1}}
         semantics_full = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky', "miscellaneous"]
         #Label names - e.g. enclosure, walkability, etc.
         custom_formula_names   = list(desired_distribution.keys())
@@ -79,22 +80,24 @@ def choose_model_based_on_query(desired_distribution):
         #Original style query either {"water":d1, "sky":d2, ...} or [d1, d2, ...]
         #Semantics
         #1.  ['building', ' water', 'tree', 'sky']
-        semantics_pricipal   = ['building', 'water', 'tree', 'sky'] 
-        labels, label_ids, query_ids = np.intersect1d(semantics_pricipal, list(desired_distribution.keys()), return_indices=True)
-        if len(labels) > 0: #semantics_pricipal case
-            info_dict_path = "./utils/assets/data/splits_physical/models/training_info_100.json"
-            rectified_distribution = np.zeros_like(semantics_pricipal, dtype=float) #- 1
-            rectified_distribution[label_ids] = [desired_distribution[semantics_pricipal[qi]] for qi in label_ids]
+        # semantics_pricipal   = ['building', 'water', 'tree', 'sky'] 
+        # labels, label_ids, query_ids = np.intersect1d(semantics_pricipal, list(desired_distribution.keys()), return_indices=True)
+        # if len(labels) > 0: #semantics_pricipal case
+        #     # info_dict_path = "./utils/assets/data/splits_physical/models/training_info_100.json"
+        #     info_dict_path = "./utils/assets/data/semantics/models/training_info_100.json"
+        #     rectified_distribution = np.zeros_like(semantics_pricipal, dtype=float) #- 1
+        #     rectified_distribution[label_ids] = [desired_distribution[semantics_pricipal[qi]] for qi in label_ids]
 
-            print(labels, label_ids, query_ids)
-            print(f"Querying for principal semantics:")
-            query_labels = semantics_pricipal
+        #     print(labels, label_ids, query_ids)
+        #     print(f"Querying for principal semantics:")
+        #     query_labels = semantics_pricipal
 
         #2.  [' building' ' water' ' road ' ' sidewalk' ' surface' ' tree' ' sky']
-        semantics_adders     = ['road', 'sidewalk', 'surface']
+        # semantics_adders     = ['road', 'sidewalk', 'surface']
         # semantics_full       = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky'] #Old full semantics before unifying perception and semantics 11.25.2024
         semantics_full = ['building', 'water', 'road', 'sidewalk', 'surface', 'tree', 'sky', "miscellaneous"]
-        labels, label_ids, query_ids = np.intersect1d(semantics_adders, list(desired_distribution.keys()), return_indices=True)
+        # labels, label_ids, query_ids = np.intersect1d(semantics_adders, list(desired_distribution.keys()), return_indices=True)
+        labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
         if len(labels) > 0: #semantics_full case
             labels, label_ids, query_ids = np.intersect1d(semantics_full, list(desired_distribution.keys()), return_indices=True)
             # info_dict_path = "./utils/assets/data/full_semantics/models/training_info_1000.json" #old full path with only two height levels
@@ -106,7 +109,7 @@ def choose_model_based_on_query(desired_distribution):
             print(f"Querying for full semantics: \n\t{semantics_full}")
             query_labels = semantics_full
 
-        #Perception:
+        #Perception: Original perceptions without formulas
         #3. ["greenness", "openness", "imageability", "encolusre", "walkability", "serenity"]
         perceptions          = ["greenness", "openness", "imageability", "enclosure", "walkability", "serenity"]
         labels, label_ids, query_ids = np.intersect1d(perceptions, list(desired_distribution.keys()), return_indices=True)

@@ -122,8 +122,10 @@ class NeRFS(nn.Module):
         self.fc_2 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_3 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_4 = nn.Linear(self._feat_dim, self._feat_dim)
+
         self.fc_5 = nn.Linear(self._feat_dim + self._pos_dim, self._feat_dim)
         # self.fc_5 = nn.Linear(self._feat_dim + self._pos_dim + self._view_dir_dim, self._feat_dim) #Intruduce view dir earlier in the model
+
         self.fc_6 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_7 = nn.Linear(self._feat_dim, self._feat_dim)
         self.fc_8 = nn.Linear(self._feat_dim, self._feat_dim + density_dim)
