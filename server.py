@@ -41,6 +41,8 @@ def query_plane_locations_page():
     try:
         data                 = request.json
         query_df             = pd.DataFrame(data)
+        print("Received data was:\n\t", data)
+        # print("Received intervals:\n\t", query_df["intervals"])
 
         print(query_df["f_xyz"].values[0], type(query_df["f_xyz"].values[0]), type(query_df["f_xyz"].values[0]) is dict)
         print(list(query_df["f_xyz"].values[0].values())[0], type(list(query_df["f_xyz"].values[0].values())[0]))#Custom perception: Check if each dictionary entry is itself a dictionary.
@@ -195,7 +197,7 @@ def predict_facade_from_base_points_as_tiles_page():
 
         from utils.geometry_utils import generate_vertical_squares
 
-        n_width = 20#10#15 #number of tiles on the thinnest side.
+        n_width = 5#20#10#15 #number of tiles on the thinnest side.
         n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
         n_samples = 6 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
         points    = bp
@@ -280,9 +282,9 @@ def predict_facade_from_base_points_as_continous_tiles_page():
 
         from utils.geometry_utils import generate_vertical_squares
 
-        n_width = 10#20#10#15 #number of tiles on the thinnest side.
+        n_width = 7#10#20#10#15 #number of tiles on the thinnest side.
         n_height = bh#20 #the height of the builidng, not how many tiles will the facade have
-        n_samples = 5 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
+        n_samples = 10 #make this always divisible to 6 due to interface hard coding #5#100 #sampels per tile
         points    = bp
 
         #centers, samples, side_length = generate_vertical_squares(points, n_width, n_height, n_samples) #used in get_facade_predictions_as_tiles
