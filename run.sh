@@ -16,8 +16,8 @@ set -e
 # #1. Cloning interface github repository: if it does not exist:
 export flag=0
 export path_to_interface=0
-directories=("./visibility-data-generator-main-branch" "../visibility-data-generator-main-branch" "../../visibility-data-generator-main-branch")
-servers=("../" "../Visibility_Encoder-main-branch" "../../Visibility_Encoder-main-branch")
+directories=("./visibility-data-generator-kazi-branch" "../visibility-data-generator-kazi-branch" "../../visibility-data-generator-kazi-branch")
+servers=("../" "../Visibility_Encoder-kazi-branch" "../../Visibility_Encoder-kazi-branch")
 # export dir="visibility-data-generator"
 
 # Check if each directory exists
