@@ -1,7 +1,7 @@
-# Visibility Encoder
+# A Neural Field-Based Approach for View Computation & Data Exploration in 3D Urban Environments
 
-This repository contains the implementation of the system introduced in the paper **A Neural Field-Based Approach for
-View Computation & Exploration in 3D Urban Environments** by Stefan Cobeli, Kazi Shahrukh Omar, Rodrigo Valença, Nivan Ferreira and Fabio Miranda.  
+This repository contains the implementation of the approaches introduced in the work **A Neural Field-Based Approach for
+View Computation & Data Exploration in 3D Urban Environments** by Stefan Cobeli, Kazi Shahrukh Omar, Rodrigo Valença, Nivan Ferreira and Fabio Miranda.  
 
 The main method encodes visibility distributions in 3d environments(e.g., towards buildings, trees, water, or sky) and supports direct queries (computing visibility from a given viewpoint) as well as inverse queries (finding viewpoints that match desired conditions).  
 
